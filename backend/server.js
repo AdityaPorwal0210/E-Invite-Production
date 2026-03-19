@@ -15,7 +15,13 @@ connectDB();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: [
+        'http://localhost:5173', // Keeps your local development working
+        'https://invitoinnbox.vercel.app' // Your live production frontend
+    ],
+    credentials: true, // This is mandatory for your cookies to work
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Good practice for form submissions
 
