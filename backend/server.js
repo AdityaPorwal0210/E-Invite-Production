@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { errorHandler } = require('./middleware/error.middleware');
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
@@ -47,6 +48,7 @@ app.use((err, req, res, next) => {
 
 // 4. Dynamic Port Assignment
 const PORT = process.env.PORT || 5005;
+app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
