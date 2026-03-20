@@ -128,7 +128,7 @@ const Profile = () => {
             <div className="relative">
               {user?.profileImage ? (
                 <img
-                  src={user.profileImage}
+                  src={user.profileImage?.replace('http://', 'https://')}
                   alt="Profile"
                   className="w-24 h-24 rounded-full object-cover border-4 border-indigo-100"
                 />

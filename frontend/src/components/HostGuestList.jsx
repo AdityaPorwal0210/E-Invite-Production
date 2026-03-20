@@ -173,7 +173,7 @@ const HostGuestList = () => {
                           <div className="flex items-center">
                             {guestImage ? (
                               <img
-                                src={guestImage}
+                                src={guestImage?.replace('http://', 'https://')}
                                 alt={guestName}
                                 className="h-10 w-10 rounded-full object-cover mr-3"
                               />

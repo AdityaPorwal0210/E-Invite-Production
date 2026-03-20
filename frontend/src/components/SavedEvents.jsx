@@ -138,7 +138,7 @@ const SavedEvents = () => {
                 <div className="h-48 bg-gray-200 w-full">
                   {invitation.coverImage ? (
                     <img 
-                      src={invitation.coverImage} 
+                      src={invitation.coverImage?.replace('http://', 'https://')} 
                       alt={invitation.title}
                       className="w-full h-full object-cover"
                     />

@@ -16,7 +16,8 @@ const uploadOnCloudinary = async (localFilePath) => {
     });
 
     fs.unlinkSync(localFilePath);
-    return response;
+    // Return only the secure URL to avoid mixed content warnings
+    return { url: response.secure_url };
   } catch (error) {
     console.error("Cloudinary Error Details:", error); // <-- ADD THIS LINE
     if (fs.existsSync(localFilePath)) {
