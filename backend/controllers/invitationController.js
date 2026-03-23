@@ -966,8 +966,7 @@ const getEventGuestList = async (req, res) => {
 // Remove a guest from an event (host only)
 const removeGuest = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { guestId } = req.body;
+    const { id, guestId } = req.params;
 
     const invitation = await Invitation.findById(id);
 
