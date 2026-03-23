@@ -1,6 +1,7 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -21,6 +22,19 @@ const Register = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnTo = searchParams.get('returnTo') || '/';
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      const response = await api.post('/users/google-login', {
+        idToken: credentialResponse.credential
+      });
+      login(response.data.token, response.data.user);
+      toast.success('Welcome! Your account has been created with Google.');
+      navigate(returnTo);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Google registration failed');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -236,6 +250,25 @@ const Register = () => {
             >
               {loading ? 'Creating account...' : 'Register'}
             </button>
+          </div>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-50 text-gray-500">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => {
+                toast.error('Google registration failed');
+              }}
+              useOneTap
+            />
           </div>
         </form>
       </div>

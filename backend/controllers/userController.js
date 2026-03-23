@@ -4,7 +4,10 @@ const ReceivedInvitation = require("../models/ReceivedInvitation");
 const Group = require("../models/Group");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
 const sendEmail = require("../utils/sendEmail");
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT Helper Function
 const generateToken = (id) => {
@@ -399,6 +402,59 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Google Sign-In
+// @route   POST /api/users/google-login
+const googleLogin = async (req, res) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ message: "ID token is required" });
+    }
+
+    // Verify the ID token with Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture } = payload;
+
+    // Check if user exists
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Create new user with random password (they'll never need it)
+      const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+      user = await User.create({
+        name,
+        email,
+        password: hashedPassword,
+        isVerified: true // Google users are pre-verified
+      });
+    }
+
+    // Return user and token
+    res.status(200).json({
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        profileImage: user.profileImage || picture || ''
+      },
+      token: generateToken(user._id)
+    });
+  } catch (error) {
+    console.error("Google Login Error:", error);
+    res.status(500).json({ message: "Server error during Google login" });
+  }
+};
+
 // @desc    Get notification counts for navbar
 // @route   GET /api/users/notifications/counts
 const getNotificationCounts = async (req, res) => {
@@ -427,4 +483,4 @@ const getNotificationCounts = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, loginUser, verifyOTP, searchUsers, deleteUserProfile, updateUserProfile, forgotPassword, resetPassword, getNotificationCounts };
+module.exports = { registerUser, loginUser, verifyOTP, searchUsers, deleteUserProfile, updateUserProfile, forgotPassword, resetPassword, getNotificationCounts, googleLogin };
