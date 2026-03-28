@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 
+// Get API URL from environment variable with fallback
+const API_URL = import.meta.env.VITE_API_URL || 'https://invitoinbox.onrender.com';
+
 const PublicInvite = () => {
   const { id } = useParams();
   const [event, setEvent] = useState(null);
@@ -14,7 +17,7 @@ const PublicInvite = () => {
 
   const fetchEvent = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/invitations/public/${id}`);
+      const response = await axios.get(`${API_URL}/api/invitations/public/${id}`);
       setEvent(response.data);
       setLoading(false);
     } catch (err) {

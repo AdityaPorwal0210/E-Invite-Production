@@ -55,21 +55,27 @@ const createInvitation = async (req, res) => {
     let coverImageUrl = null;
     let attachments = [];
     
-    // Handle single cover image (backward compatibility)
+    // THE FIX: Safe File Processing Loop (Web App Compatible)
     if (req.files && req.files.length > 0) {
-      // First file is cover image if it's an image
-      const firstFile = req.files[0];
-      if (firstFile.mimetype.startsWith('image/')) {
-        const uploadResult = await uploadOnCloudinary(firstFile.path);
+      // 1. Isolate the first file for the cover image
+      const coverFile = req.files[0];
+      let remainingFiles = req.files.slice(1);
+
+      // 2. Upload Cover Image safely
+      if (coverFile.mimetype.startsWith('image/')) {
+        const uploadResult = await uploadOnCloudinary(coverFile.path);
         coverImageUrl = uploadResult?.url;
         
-        if (fs.existsSync(firstFile.path)) {
-          fs.unlinkSync(firstFile.path);
+        if (fs.existsSync(coverFile.path)) {
+          fs.unlinkSync(coverFile.path);
         }
+      } else {
+        // If the first file isn't an image, put it back in the queue to be an attachment
+        remainingFiles = [coverFile, ...remainingFiles];
       }
       
-      // Process all files as attachments
-      for (const file of req.files) {
+      // 3. Process Attachments independently
+      for (const file of remainingFiles) {
         const uploadResult = await uploadOnCloudinary(file.path);
         if (uploadResult?.url) {
           attachments.push({
@@ -79,7 +85,6 @@ const createInvitation = async (req, res) => {
           });
         }
         
-        // Clean up local file
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
         }
@@ -91,15 +96,12 @@ const createInvitation = async (req, res) => {
     let unregisteredEmails = [];
     
     if (emailsArray.length > 0) {
-      // Query DB for existing users with these emails
       const existingUsers = await User.find({ email: { $in: emailsArray } }).select('_id email');
       const foundEmails = existingUsers.map(u => u.email.toLowerCase());
       
-      // Separate into registered and unregistered
       registeredIds = existingUsers.map(u => u._id.toString());
       unregisteredEmails = emailsArray.filter(e => !foundEmails.includes(e.toLowerCase()));
       
-      // Add registered users to usersArray
       usersArray = [...usersArray, ...registeredIds];
     }
 
@@ -119,10 +121,8 @@ const createInvitation = async (req, res) => {
       googleMapsLink: googleMapsLink || null
     });
 
-    // Get all unique recipient IDs (from groups + individual users)
     const allRecipientIds = new Set();
     
-    // Add group members
     if (groupsArray.length > 0) {
       for (const groupId of groupsArray) {
         const group = await Group.findById(groupId);
@@ -136,7 +136,6 @@ const createInvitation = async (req, res) => {
       }
     }
     
-    // Add individually invited users
     if (usersArray.length > 0) {
       usersArray.forEach(userId => {
         if (userId.toString() !== req.user.id) {
@@ -145,12 +144,10 @@ const createInvitation = async (req, res) => {
       });
     }
 
-    // Get host name for emails
     const hostUser = await User.findById(req.user.id).select('name');
     const hostName = hostUser?.name || 'Someone';
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-    // Create ReceivedInvitation for each unique registered recipient
     if (allRecipientIds.size > 0) {
       const recipientIds = Array.from(allRecipientIds);
       await Promise.all(
@@ -167,10 +164,8 @@ const createInvitation = async (req, res) => {
         )
       );
       
-      // Send email invitations to all registered recipients
       const recipientUsers = await User.find({ _id: { $in: recipientIds } }).select('email name');
       
-      // Send emails to each registered recipient
       for (const recipient of recipientUsers) {
         try {
           await sendEmail({
@@ -184,7 +179,6 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    // Send emails to unregistered guests (Teaser Email - hides location)
     for (const email of unregisteredEmails) {
       try {
         await sendEmail({
@@ -209,7 +203,6 @@ const createInvitation = async (req, res) => {
 
 const getInvitations = async (req, res) => {
   try {
-    // Only fetch invitations owned by the current user
     const invitations = await Invitation.find({ user: req.user.id })
       .sort({ createdAt: -1 })
       .populate('host', 'name email')
@@ -226,7 +219,6 @@ const getInvitations = async (req, res) => {
   }
 };
 
-// Get single invitation by ID
 const getInvitationById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -240,10 +232,8 @@ const getInvitationById = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Check if user owns this invitation
     const isHost = invitation.user.toString() === req.user.id;
 
-    // If host, include guest list
     if (isHost) {
       const guestList = await ReceivedInvitation.find({ invitation: id })
         .populate('recipient', 'name email')
@@ -256,25 +246,20 @@ const getInvitationById = async (req, res) => {
       });
     }
 
-    // Check if user is in pendingGuestEmails (unregistered guest)
     const pendingEmails = invitation.pendingGuestEmails || [];
     const isPendingGuest = userEmail && pendingEmails.includes(userEmail);
 
-    // For non-hosts, check if they have a ReceivedInvitation
     const received = await ReceivedInvitation.findOne({ 
       invitation: id, 
       recipient: req.user.id 
     }).select('rsvpStatus salutation isSaved isRead');
 
-    // If user was a pending guest but now has an account, claim the invite
     if (isPendingGuest && !received) {
-      // Add user to invitedUsers and remove from pendingGuestEmails
       await Invitation.findByIdAndUpdate(id, {
         $addToSet: { invitedUsers: req.user.id },
         $pull: { pendingGuestEmails: userEmail }
       });
       
-      // Create ReceivedInvitation record
       await ReceivedInvitation.create({
         invitation: id,
         recipient: req.user.id,
@@ -296,7 +281,6 @@ const getInvitationById = async (req, res) => {
   }
 };
 
-// Update RSVP status
 const updateRSVP = async (req, res) => {
   try {
     const { id } = req.params;
@@ -312,7 +296,6 @@ const updateRSVP = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Use updateOne to bypass validation issues with old data
     const result = await ReceivedInvitation.findOneAndUpdate(
       { invitation: id, recipient: req.user.id },
       { rsvpStatus: status },
@@ -326,16 +309,11 @@ const updateRSVP = async (req, res) => {
   }
 };
 
-// Get invitations sent to user's groups or directly invited (Inbox)
 const getReceivedInvitations = async (req, res) => {
   try {
-    // Find all groups where user is a member
     const userGroups = await Group.find({ members: req.user.id });
     const groupIds = userGroups.map(group => group._id);
     
-    // Find all invitations where:
-    // - sharedGroups contains any of the user's group IDs, OR
-    // - invitedUsers contains the current user's ID
     const invitations = await Invitation.find({ 
       $or: [
         { sharedGroups: { $in: groupIds } },
@@ -347,7 +325,6 @@ const getReceivedInvitations = async (req, res) => {
     .populate('sharedGroups', 'name')
     .populate('invitedUsers', 'name email');
 
-    // Get isRead status for each invitation
     const invitationIds = invitations.map(inv => inv._id);
     const receivedRecords = await ReceivedInvitation.find({ 
       invitation: { $in: invitationIds },
@@ -359,7 +336,6 @@ const getReceivedInvitations = async (req, res) => {
       isReadMap[rec.invitation.toString()] = rec.isRead;
     });
 
-    // Add isRead to each invitation
     const invitationsWithReadStatus = invitations.map(inv => ({
       ...inv.toObject(),
       isRead: isReadMap[inv._id.toString()] || false
@@ -386,12 +362,10 @@ const updateInvitation = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Check ownership
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to update this invitation" });
     }
 
-    // Update fields
     if (title) invitation.title = title;
     if (description) invitation.description = description;
     if (eventDate) invitation.eventDate = eventDate;
@@ -399,9 +373,7 @@ const updateInvitation = async (req, res) => {
     if (videoUrl !== undefined) invitation.videoUrl = videoUrl || null;
     if (googleMapsLink !== undefined) invitation.googleMapsLink = googleMapsLink || null;
 
-    // Handle cover image upload
     if (req.file) {
-      // Delete old image if exists
       if (invitation.coverImage) {
         await deleteFromCloudinary(invitation.coverImage);
       }
@@ -436,17 +408,14 @@ const deleteInvitation = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Check ownership
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to delete this invitation" });
     }
 
-    // Delete cover image from Cloudinary
     if (invitation.coverImage) {
       await deleteFromCloudinary(invitation.coverImage);
     }
 
-    // Delete any received invitations
     await ReceivedInvitation.deleteMany({ invitation: id });
 
     await invitation.deleteOne();
@@ -458,7 +427,6 @@ const deleteInvitation = async (req, res) => {
   }
 };
 
-// Public glimpse - only returns basic event info, no private details
 const getPublicInvitation = async (req, res) => {
   try {
     const { id } = req.params;
@@ -478,7 +446,6 @@ const getPublicInvitation = async (req, res) => {
   }
 };
 
-// Public teaser - ONLY returns title, coverImage, eventDate, host name (no location, video, description, guest list)
 const getTeaser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -498,7 +465,6 @@ const getTeaser = async (req, res) => {
   }
 };
 
-// Revoke an invitation (host can remove guests, groups, or pending emails)
 const revokeInvite = async (req, res) => {
   try {
     const { id } = req.params;
@@ -510,39 +476,32 @@ const revokeInvite = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Check ownership
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to revoke invitations" });
     }
 
-    // Handle userId removal (registered user)
-    // Convert to ObjectId if string
     let userIdToRemove = userId;
     if (userId && typeof userId === 'string') {
       try {
         const mongoose = require('mongoose');
         userIdToRemove = new mongoose.Types.ObjectId(userId);
       } catch (e) {
-        // Keep as string if not valid ObjectId
       }
     }
     
     if (userIdToRemove) {
-      // Remove from invitedUsers array (supports both string and ObjectId)
       await Invitation.findByIdAndUpdate(id, {
         $pull: { 
           invitedUsers: userIdToRemove
         }
       });
       
-      // Also remove from ReceivedInvitation collection
       await ReceivedInvitation.deleteMany({
         invitation: id,
         recipient: userIdToRemove
       });
     }
 
-    // Handle email removal (unregistered guest)
     if (email) {
       const emailLower = email.toLowerCase().trim();
       await Invitation.findByIdAndUpdate(id, {
@@ -550,16 +509,13 @@ const revokeInvite = async (req, res) => {
       });
     }
 
-    // Handle groupId removal (shared group)
     if (groupId) {
-      // Convert to ObjectId if string
       let groupIdToRemove = groupId;
       if (typeof groupId === 'string') {
         try {
           const mongoose = require('mongoose');
           groupIdToRemove = new mongoose.Types.ObjectId(groupId);
         } catch (e) {
-          // Keep as string
         }
       }
       
@@ -568,13 +524,11 @@ const revokeInvite = async (req, res) => {
       });
     }
 
-    // Fetch updated invitation with guest list
     const updatedInvitation = await Invitation.findById(id)
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
       .populate('invitedUsers', 'name email');
     
-    // Get updated guest list from ReceivedInvitation
     const guestList = await ReceivedInvitation.find({ invitation: id })
       .populate('recipient', 'name email')
       .sort({ rsvpStatus: 1 });
@@ -593,7 +547,6 @@ const revokeInvite = async (req, res) => {
   }
 };
 
-// Share invitation with more groups/users after creation
 const shareInvitationLater = async (req, res) => {
   try {
     const { id } = req.params;
@@ -605,12 +558,10 @@ const shareInvitationLater = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Check ownership
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to share this invitation" });
     }
 
-    // Parse newGroups
     let groupsArray = [];
     if (newGroups) {
       if (Array.isArray(newGroups)) {
@@ -624,7 +575,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Separate newUsers into valid ObjectIds and raw emails
     const validUserIds = [];
     const rawEmails = [];
     const isObjectId = /^[0-9a-fA-F]{24}$/;
@@ -641,7 +591,6 @@ const shareInvitationLater = async (req, res) => {
         }
       }
       
-      // Separate ObjectIds from emails
       for (const item of usersArray) {
         if (isObjectId.test(item)) {
           validUserIds.push(item);
@@ -651,7 +600,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Also process newEmails if provided directly
     if (newEmails) {
       let emailsArray = [];
       if (Array.isArray(newEmails)) {
@@ -671,43 +619,34 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Get host name
     const hostUser = await User.findById(req.user.id).select('name');
     const hostName = hostUser?.name || 'Someone';
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-    // Handle group invitations
     if (groupsArray.length > 0) {
       await Invitation.findByIdAndUpdate(id, {
         $addToSet: { sharedGroups: { $each: groupsArray } }
       });
     }
 
-    // Handle registered user invitations (valid ObjectIds only)
     let registeredEmails = [];
     if (validUserIds.length > 0) {
-      // Only use valid ObjectIds in the query
       await Invitation.findByIdAndUpdate(id, {
         $addToSet: { invitedUsers: { $each: validUserIds } }
       });
       
-      // Get emails of registered users to send invitations
       const registeredUsers = await User.find({ _id: { $in: validUserIds } }).select('email name');
       registeredEmails = registeredUsers.map(u => u.email);
     }
 
-    // Handle unregistered guest invitations (raw emails)
     let unregisteredEmails = [];
     if (rawEmails.length > 0) {
-      // Check which emails are already registered
       const existingUsers = await User.find({ email: { $in: rawEmails } }).select('email');
       const existingEmails = existingUsers.map(u => u.email.toLowerCase());
       
-      // Separate into already registered vs truly unregistered
       const alreadyRegisteredIds = existingUsers.map(u => u._id.toString());
       unregisteredEmails = rawEmails.filter(e => !existingEmails.includes(e));
       
-      // Add already registered users to invitedUsers
       if (alreadyRegisteredIds.length > 0) {
         await Invitation.findByIdAndUpdate(id, {
           $addToSet: { invitedUsers: { $each: alreadyRegisteredIds } }
@@ -715,7 +654,6 @@ const shareInvitationLater = async (req, res) => {
         registeredEmails = [...registeredEmails, ...existingEmails];
       }
       
-      // Add unregistered emails to pendingGuestEmails
       if (unregisteredEmails.length > 0) {
         await Invitation.findByIdAndUpdate(id, {
           $addToSet: { pendingGuestEmails: { $each: unregisteredEmails } }
@@ -723,7 +661,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Get all unique new recipient IDs from groups
     const allNewRecipientIds = new Set();
 
     if (groupsArray.length > 0) {
@@ -739,18 +676,15 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Add registered user IDs
     validUserIds.forEach(userId => {
       if (userId !== req.user.id) {
         allNewRecipientIds.add(userId);
       }
     });
 
-    // Create ReceivedInvitation for new registered recipients with salutations
     if (allNewRecipientIds.size > 0) {
       const newRecipientIds = Array.from(allNewRecipientIds);
       
-      // Parse salutations if provided (format: { "userId": "Mr.", "email": "Mrs." })
       let salutationsMap = {};
       if (salutations) {
         if (typeof salutations === 'string') {
@@ -783,7 +717,6 @@ const shareInvitationLater = async (req, res) => {
       );
     }
 
-    // Parse salutations for emails
     let salutationsMap = {};
     if (salutations) {
       if (typeof salutations === 'string') {
@@ -797,7 +730,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Helper to format greeting with salutation
     const formatGreeting = (salutation, name) => {
       if (salutation) {
         return `Dear ${salutation} ${name || 'Guest'}`;
@@ -805,10 +737,8 @@ const shareInvitationLater = async (req, res) => {
       return `Hello ${name || 'Guest'}`;
     };
 
-    // Send emails to registered guests (standard invitation)
     for (const email of registeredEmails) {
       try {
-        // Find user to get their name and check for salutation
         const user = await User.findOne({ email }).select('name');
         const userId = user?._id?.toString();
         const salutation = salutationsMap[userId] || salutationsMap[email] || '';
@@ -824,7 +754,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Send teaser emails to unregistered guests (hides location)
     for (const email of unregisteredEmails) {
       try {
         const salutation = salutationsMap[email] || '';
@@ -840,7 +769,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Fetch updated invitation
     const updatedInvitation = await Invitation.findById(id)
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
@@ -856,26 +784,22 @@ const shareInvitationLater = async (req, res) => {
   }
 };
 
-// Toggle "Save the Date" for a guest
 const toggleSaveInvitation = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
-    // Check if invitation exists
     const invitation = await Invitation.findById(id);
 
     if (!invitation) {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Find or create the ReceivedInvitation record (make it fault-tolerant)
     let received = await ReceivedInvitation.findOne({
       invitation: id,
       recipient: userId
     });
 
-    // If no record exists, create one (allows saving even if not directly invited)
     if (!received) {
       received = await ReceivedInvitation.create({
         invitation: id,
@@ -886,7 +810,6 @@ const toggleSaveInvitation = async (req, res) => {
       return res.status(200).json({ isSaved: true });
     }
 
-    // Toggle isSaved using updateOne to bypass validation on existing records with old 'Pending' status
     const newIsSaved = !received.isSaved;
     await ReceivedInvitation.updateOne(
       { _id: received._id },
@@ -900,7 +823,6 @@ const toggleSaveInvitation = async (req, res) => {
   }
 };
 
-// Get all saved invitations for the current user
 const getSavedInvitations = async (req, res) => {
   try {
     const savedRecords = await ReceivedInvitation.find({ 
@@ -916,7 +838,6 @@ const getSavedInvitations = async (req, res) => {
     })
     .sort({ 'invitation.eventDate': 1 });
 
-    // Filter out any null invitations (deleted events)
     const invitations = savedRecords
       .filter(record => record.invitation)
       .map(record => record.invitation);
@@ -931,24 +852,20 @@ const getSavedInvitations = async (req, res) => {
   }
 };
 
-// Get guest list for a specific event (host only)
 const getEventGuestList = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Find the invitation
     const invitation = await Invitation.findById(id);
 
     if (!invitation) {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Security check: Ensure user is the host
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to view this guest list" });
     }
 
-    // Get all received invitations for this event
     const guests = await ReceivedInvitation.find({ invitation: id })
       .populate('recipient', 'name email profileImage')
       .sort({ rsvpStatus: 1 });
@@ -963,7 +880,6 @@ const getEventGuestList = async (req, res) => {
   }
 };
 
-// Remove a guest from an event (host only)
 const removeGuest = async (req, res) => {
   try {
     const { id, guestId } = req.params;
@@ -974,18 +890,15 @@ const removeGuest = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Security check: Ensure user is the host
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to remove guests" });
     }
 
-    // Remove guest from ReceivedInvitation
     await ReceivedInvitation.deleteOne({
       invitation: id,
       recipient: guestId
     });
 
-    // Remove from invitedUsers
     await Invitation.findByIdAndUpdate(id, {
       $pull: { invitedUsers: guestId }
     });
@@ -997,7 +910,6 @@ const removeGuest = async (req, res) => {
   }
 };
 
-// Mark an invitation as read
 const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
