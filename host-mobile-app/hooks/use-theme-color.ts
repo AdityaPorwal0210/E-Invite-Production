@@ -1,21 +1,17 @@
-/**
- * Learn more about light and dark modes:
- * https://docs.expo.dev/guides/color-schemes/
- */
+import { useColorScheme } from 'react-native';
 
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
+// We are completely ignoring the broken Expo Colors file and returning safe strings
 export function useThemeColor(
   props: { light?: string; dark?: string },
-  colorName: keyof typeof Colors.light & keyof typeof Colors.dark
+  colorName: string
 ) {
   const theme = useColorScheme() ?? 'light';
   const colorFromProps = props[theme];
 
   if (colorFromProps) {
     return colorFromProps;
-  } else {
-    return Colors[theme][colorName];
-  }
+  } 
+  
+  // Safe default fallback so the app NEVER crashes trying to read an undefined object
+  return theme === 'light' ? '#000000' : '#ffffff';
 }

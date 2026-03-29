@@ -56,8 +56,12 @@ export default function SavedScreen() {
       const response = await axios.get(`${API_URL}/invitations/saved`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-       console.log("RAW SAVED DATA [FIRST ITEM]:", JSON.stringify(response.data.invitations[0], null, 2));
-      setInvitations(response.data.invitations || []);
+      // Safely access invitations array
+      const fetchedInvitations = response.data?.invitations || [];
+      if (fetchedInvitations.length > 0) {
+        console.log("RAW SAVED DATA [FIRST ITEM]:", JSON.stringify(fetchedInvitations[0], null, 2));
+      }
+      setInvitations(fetchedInvitations);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message || 'Failed to fetch saved invitations');

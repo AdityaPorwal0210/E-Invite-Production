@@ -6,6 +6,53 @@ const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinar
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 
+// Helper to generate URLs for email templates
+const getEmailUrls = (invitationId) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const mobileAppScheme = process.env.MOBILE_APP_URL_SCHEME || '';
+  
+  const webUrl = `${frontendUrl}/invitation/${invitationId}`;
+  const mobileUrl = mobileAppScheme 
+    ? `${mobileAppScheme}/invitation/${invitationId}` 
+    : null;
+  
+  return { webUrl, mobileUrl, frontendUrl };
+};
+
+// Helper to build email body with both web and mobile links
+const buildInvitationEmailBody = (greeting, invitation, hostName, isUnregistered = false) => {
+  const { webUrl, mobileUrl } = getEmailUrls(invitation._id);
+  
+  const eventDetails = `
+Event Details:
+- Date: ${new Date(invitation.eventDate).toLocaleDateString()}
+- Location: ${isUnregistered ? '(signup to see)' : invitation.location}
+`;
+
+  let linkSection = `
+View and RSVP here: ${webUrl}
+`;
+  
+  if (mobileUrl) {
+    linkSection = `
+📱 Mobile App: ${mobileUrl}
+🌐 Web App: ${webUrl}
+`;
+  }
+  
+  const signature = `
+Best regards,
+The Event Team`;
+
+  return `${greeting},
+
+You have been invited to "${invitation.title}" by ${hostName}.
+
+${eventDetails}
+${linkSection}
+${signature}`;
+};
+
 const createInvitation = async (req, res) => {
   try {
     const { title, description, eventDate, location, sharedGroups, invitedUsers, invitedEmails, videoUrl, googleMapsLink } = req.body;
@@ -388,6 +435,29 @@ const updateInvitation = async (req, res) => {
 
     await invitation.save();
 
+    // Send email notifications to guests about the update
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    try {
+      const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
+      
+      for (const guest of guests) {
+        if (guest.recipient && guest.recipient.email) {
+          try {
+            await sendEmail({
+              to: guest.recipient.email,
+              subject: `Event Updated: ${invitation.title}`,
+              text: `Hello ${guest.recipient.name || 'Guest'},\n\nThe host has updated the details for "${invitation.title}".\n\nYou can view the updated event here: ${frontendUrl}/event/${invitation._id}\n\nBest regards,\nThe Event Team`
+            });
+          } catch (emailError) {
+            console.error(`Failed to send update email to ${guest.recipient.email}:`, emailError);
+          }
+        }
+      }
+    } catch (notifyError) {
+      // Don't fail the update if email notifications fail
+      console.error("Failed to send update notifications:", notifyError);
+    }
+
     res.status(200).json(invitation);
   } catch (error) {
     console.error("Update Error:", error);
@@ -410,6 +480,28 @@ const deleteInvitation = async (req, res) => {
 
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized to delete this invitation" });
+    }
+
+    // Send cancellation email notifications BEFORE deleting records
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    try {
+      const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
+      
+      for (const guest of guests) {
+        if (guest.recipient && guest.recipient.email) {
+          try {
+            await sendEmail({
+              to: guest.recipient.email,
+              subject: `Event Cancelled: ${invitation.title}`,
+              text: `Hello ${guest.recipient.name || 'Guest'},\n\nWe regret to inform you that "${invitation.title}" has been cancelled by the host.\n\nWe apologize for any inconvenience.\n\nBest regards,\nThe Event Team`
+            });
+          } catch (emailError) {
+            console.error(`Failed to send cancellation email to ${guest.recipient.email}:`, emailError);
+          }
+        }
+      }
+    } catch (notifyError) {
+      console.error("Failed to send cancellation notifications:", notifyError);
     }
 
     if (invitation.coverImage) {
@@ -737,6 +829,7 @@ const shareInvitationLater = async (req, res) => {
       return `Hello ${name || 'Guest'}`;
     };
 
+    // Send emails to registered users
     for (const email of registeredEmails) {
       try {
         const user = await User.findOne({ email }).select('name');
@@ -744,25 +837,32 @@ const shareInvitationLater = async (req, res) => {
         const salutation = salutationsMap[userId] || salutationsMap[email] || '';
         const greeting = formatGreeting(salutation, user?.name);
         
+        // Use the new helper function for email body
+        const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, false);
+        
         await sendEmail({
           to: email,
           subject: `You're invited: ${invitation.title}`,
-          text: `${greeting},\n\nYou have been invited to "${invitation.title}" by ${hostName}.\n\nEvent Details:\n- Date: ${new Date(invitation.eventDate).toLocaleDateString()}\n- Location: ${invitation.location}\n\nClick here to view and RSVP: ${frontendUrl}/invitation/${invitation._id}\n\nBest regards,\nThe Event Team`
+          text: emailBody
         });
       } catch (emailError) {
         console.error(`Failed to send email to ${email}:`, emailError);
       }
     }
 
+    // Send emails to unregistered guests
     for (const email of unregisteredEmails) {
       try {
         const salutation = salutationsMap[email] || '';
         const greeting = formatGreeting(salutation, '');
         
+        // Use the new helper function for email body (unregistered = true)
+        const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, true);
+        
         await sendEmail({
           to: email,
           subject: `You've been invited to ${invitation.title}! (Action Required)`,
-          text: `${greeting},\n\nYou have been invited to "${invitation.title}" by ${hostName} on ${new Date(invitation.eventDate).toLocaleDateString()}.\n\n📍 Location: (signup to see)\n\nTo unlock the full details, view the location, and RSVP, please create a free account:\n\n${frontendUrl}/invitation/${invitation._id}\n\nBest regards,\nThe Event Team`
+          text: emailBody
         });
       } catch (emailError) {
         console.error(`Failed to send email to ${email}:`, emailError);

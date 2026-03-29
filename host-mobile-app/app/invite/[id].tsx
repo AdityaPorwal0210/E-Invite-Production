@@ -31,7 +31,7 @@ interface SelectedUser {
   salutation: string;
 }
 
-const SALUTATION_OPTIONS = ['None', 'Mr.', 'Mrs.', 'Ms.', 'With Family'];
+const SALUTATION_OPTIONS = ['None', 'Mr.', 'Mrs.', 'Ms.', 'Mr. & Mrs.', 'With Family'];
 
 export default function InviteScreen() {
   const router = useRouter();
@@ -210,13 +210,21 @@ export default function InviteScreen() {
     try {
       const token = await AsyncStorage.getItem('authToken');
       
-      // Transform selected users
+      // Transform selected users - separate registered users from email-only guests
       const finalUserIds: string[] = [];
+      const emailOnlyGuests: string[] = [];
       const salutationsMap: Record<string, string> = {};
       
       selectedUsers.forEach(user => {
-        // Only include users with actual IDs (not email-only)
-        if (!user._id.startsWith('email_')) {
+        if (user._id.startsWith('email_')) {
+          // Email-only guest (unregistered)
+          emailOnlyGuests.push(user.email);
+          // Also add salutation for email guests (backend supports email as key)
+          if (user.salutation && user.salutation !== 'None') {
+            salutationsMap[user.email] = user.salutation;
+          }
+        } else {
+          // Registered user
           finalUserIds.push(user._id);
           if (user.salutation && user.salutation !== 'None') {
             salutationsMap[user._id] = user.salutation;
@@ -228,15 +236,28 @@ export default function InviteScreen() {
         newGroups: selectedGroups,
       };
 
-      // Only include newUsers if there are actual user IDs
+      // Include registered user IDs if any
       if (finalUserIds.length > 0) {
         payload.newUsers = finalUserIds;
+      }
+
+      // Include email-only guests for unregistered invites
+      if (emailOnlyGuests.length > 0) {
+        payload.newEmails = emailOnlyGuests;
+      }
+
+      // Always include salutations if any were set
+      if (Object.keys(salutationsMap).length > 0) {
         payload.salutations = salutationsMap;
       }
 
-      await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
+      console.log("Sending invite payload:", JSON.stringify(payload, null, 2));
+
+      const response = await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      console.log("Invite response:", JSON.stringify(response.data, null, 2));
 
       Alert.alert('Success', 'Invitations sent successfully!', [
         {
@@ -244,14 +265,10 @@ export default function InviteScreen() {
           onPress: () => router.back(),
         },
       ]);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        Alert.alert('Error', err.response?.data?.message || 'Failed to send invitations');
-      } else if (err instanceof Error) {
-        Alert.alert('Error', err.message);
-      } else {
-        Alert.alert('Error', 'Failed to send invitations');
-      }
+    } catch (err: any) {
+      console.error("Invite Error Details:", err?.response?.data || (err instanceof Error ? err.message : 'Unknown error'));
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to send invitations';
+      Alert.alert('Error', errorMessage);
     } finally {
       setInviting(false);
     }

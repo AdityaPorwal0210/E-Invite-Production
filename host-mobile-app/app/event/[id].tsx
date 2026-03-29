@@ -22,6 +22,7 @@ export default function EventDetailsHub() {
   const router = useRouter();
 
   const [invitation, setInvitation] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [guests, setGuests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [myRsvp, setMyRsvp] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export default function EventDetailsHub() {
   const isHost = mode !== 'attending';
 
   // Screen dimensions
-  const screenWidth = Dimensions.get('window').width;
+  const { width: screenWidth } = Dimensions.get('window');
 
   useFocusEffect(
     useCallback(() => {
@@ -78,9 +79,8 @@ export default function EventDetailsHub() {
           const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers });
           setGuests(guestRes.data.guests || []);
         } catch (guestErr: any) {
-          // If the server denies guest list access, just log it. Do NOT crash.
           console.warn("Guest List Blocked by Server:", guestErr.response?.data?.message);
-          setGuests([]); // Clear it just in case
+          setGuests([]); 
         }
       }
     } catch (err: any) {
@@ -91,10 +91,7 @@ export default function EventDetailsHub() {
   };
 
   const handleRSVP = async (status: string) => {
-    // Store previous state for rollback
     const previousRsvp = myRsvp;
-    
-    // Optimistic UI update - immediately update the state
     setMyRsvp(status);
     setRsvpLoading(true);
     
@@ -105,14 +102,11 @@ export default function EventDetailsHub() {
         { status },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // Update with server response
       setMyRsvp(response.data.rsvpStatus);
       
-      // Format status for alert message
       const statusMessage = status === 'accepted' ? 'attending' : status === 'declined' ? 'declined' : 'marked as maybe';
       Alert.alert('Success', `You are ${statusMessage}!`);
     } catch (err) {
-      // Rollback on error
       setMyRsvp(previousRsvp);
       if (axios.isAxiosError(err)) {
         Alert.alert('Error', err.response?.data?.message || 'Failed to update RSVP. Please try again.');
@@ -128,7 +122,6 @@ export default function EventDetailsHub() {
 
   const handleToggleSave = async () => {
     setSaveLoading(true);
-    // Optimistic update
     const previousState = isSaved;
     setIsSaved(!isSaved);
     
@@ -141,7 +134,6 @@ export default function EventDetailsHub() {
       );
       setIsSaved(response.data.isSaved);
     } catch (err) {
-      // Revert on error
       setIsSaved(previousState);
       if (axios.isAxiosError(err)) {
         Alert.alert('Error', err.response?.data?.message || 'Failed to update save status');
@@ -179,7 +171,6 @@ export default function EventDetailsHub() {
           type: asset.mimeType || 'image/jpeg',
         }));
         
-        // Limit to 5 attachments max
         const combined = [...attachments, ...newAttachments].slice(0, 5);
         setAttachments(combined);
         
@@ -219,7 +210,6 @@ export default function EventDetailsHub() {
     try {
       const token = await AsyncStorage.getItem('authToken');
       
-      // Update text fields (videoUrl, googleMapsLink) - backend supports these
       const updateData: any = {};
       
       if (videoUrl) {
@@ -229,7 +219,6 @@ export default function EventDetailsHub() {
         updateData.googleMapsLink = googleMapsLink;
       }
 
-      // Only make API call if there are changes
       if (Object.keys(updateData).length > 0) {
         await axios.put(
           `${API_URL}/invitations/${id}`,
@@ -244,7 +233,7 @@ export default function EventDetailsHub() {
 
       Alert.alert('Success', 'Event media updated successfully!');
       setIsEditing(false);
-      setAttachments([]); // Clear local attachments
+      setAttachments([]); 
       fetchEventData();
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -259,6 +248,79 @@ export default function EventDetailsHub() {
     }
   };
 
+  const handleDeleteEvent = async () => {
+    Alert.alert(
+      'Cancel Event',
+      'Are you absolutely sure? This will delete the event and email all guests that it has been cancelled. This cannot be undone.',
+      [
+        { text: 'No, Keep It', style: 'cancel' },
+        {
+          text: 'Yes, Cancel Event',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Trigger the blast shield
+              setIsDeleting(true); 
+              
+const token = await AsyncStorage.getItem('authToken');
+              await axios.delete(
+                `${process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api'}/invitations/${id}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              );              
+              router.replace('/dashboard');
+              
+            } catch (error) {
+              setIsDeleting(false);
+              console.error("Delete Error:", error);
+              Alert.alert("Error", "Failed to cancel the event. Check your connection.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRemoveGuest = async (guestId: string) => {
+    Alert.alert(
+      'Remove Guest',
+      'Are you sure you want to remove this guest from the event?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem('authToken');
+              await axios.delete(
+                `${API_URL}/invitations/${id}/guests/${guestId}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+
+              setGuests(prevGuests => 
+                prevGuests.filter(g => {
+                  const currentGuestId = g.recipient?._id || g._id;
+                  return currentGuestId !== guestId;
+                })
+              );
+              Alert.alert('Success', 'Guest removed from event');
+            } catch (err) {
+              if (axios.isAxiosError(err)) {
+                Alert.alert('Error', err.response?.data?.message || 'Failed to remove guest');
+              } else if (err instanceof Error) {
+                Alert.alert('Error', err.message);
+              } else {
+                Alert.alert('Error', 'Failed to remove guest');
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // --- RENDERING GUARDS ---
+
   if (loading || !invitation) {
     return (
       <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
@@ -268,23 +330,24 @@ export default function EventDetailsHub() {
     );
   }
 
+  // --- THE BLAST SHIELD ---
+  if (isDeleting) {
+    return (
+      <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
+        <Stack.Screen options={{ title: 'Cancelling...', headerShown: false }} />
+        <ActivityIndicator size="large" color={COLORS.danger} />
+        <Text style={{ marginTop: 10, color: COLORS.danger, fontWeight: 'bold' }}>Cancelling Event...</Text>
+      </View>
+    );
+  }
+
   // Analytics Math
   const attending = guests.filter(g => g.rsvpStatus === 'accepted').length;
   const pending = guests.filter(g => g.rsvpStatus === 'tentative' || !g.rsvpStatus).length;
   const declined = guests.filter(g => g.rsvpStatus === 'declined').length;
 
-  // Consolidated image carousel data - normalize to handle both strings (coverImage) and objects (attachments with .url)
-  const allImages = [
-    invitation?.coverImage,
-    ...(invitation?.attachments || []).map((att: any) => att.url || att)
-  ].filter(Boolean);
+  const allImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
 
-  // Debug logging to see actual data structure
-  console.log('DEBUG coverImage:', invitation?.coverImage);
-  console.log('DEBUG attachments:', JSON.stringify(invitation?.attachments, null, 2));
-  console.log('DEBUG allImages:', allImages);
-
-  // Handle scroll to update pagination
   const handleScroll = (event: any) => {
     const slideSize = event.nativeEvent.layoutMeasurement.width;
     const index = event.nativeEvent.contentOffset.x / slideSize;
@@ -297,19 +360,35 @@ export default function EventDetailsHub() {
       <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
       <ScrollView style={styles.container} bounces={false} showsVerticalScrollIndicator={false}>
         
-        {/* Cover Image */}
-        {invitation.coverImage ? (
-          <Image 
-            source={{ uri: invitation.coverImage }} 
-            style={styles.coverImage} 
-          />
+        {allImages.length > 0 ? (
+          <View style={{ height: 300, width: screenWidth, backgroundColor: '#e5e7eb' }}>
+            <FlatList
+              data={allImages}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item, index) => index.toString()}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              renderItem={({ item }) => (
+                <Image 
+                  source={{ uri: item }} 
+                  style={{ width: screenWidth, height: 300, resizeMode: 'cover' }} 
+                />
+              )}
+            />
+            {allImages.length > 1 && (
+              <View style={styles.swipeBadge}>
+                <Text style={styles.swipeBadgeText}>Swipe ({allImages.length} items)</Text>
+              </View>
+            )}
+          </View>
         ) : (
           <View style={[styles.coverImage, styles.carouselPlaceholder]}>
             <Text style={{ fontSize: 40 }}>📅</Text>
           </View>
         )}
         
-        {/* Save/Bookmark Button - Absolutely positioned top-right */}
         {!isHost && (
           <TouchableOpacity
             style={styles.bookmarkButton}
@@ -325,44 +404,6 @@ export default function EventDetailsHub() {
           </TouchableOpacity>
         )}
 
-        {/* Attachments Section - Show below cover image */}
-        <View style={styles.attachmentsCarousel}>
-          <Text style={styles.sectionTitle}>Event Photos ({invitation.attachments?.length || 0})</Text>
-          {invitation.attachments && invitation.attachments.length > 0 ? (
-            <FlatList
-              data={invitation.attachments}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(item, index) => index.toString()}
-              renderItem={({ item, index }) => {
-                // Handle both string URLs and object format
-                const imageUrl = typeof item === 'string' ? item : (item.url || item);
-                console.log(`Attachment ${index}:`, imageUrl);
-                return (
-                  <Image 
-                    source={{ uri: imageUrl }} 
-                    style={styles.attachmentThumbnail} 
-                  />
-                );
-              }}
-            />
-          ) : (
-            <View style={styles.noAttachments}>
-              <Text style={styles.noAttachmentsText}>No additional photos</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Debug Section - Show raw data */}
-        {process.env.NODE_ENV !== 'production' && (
-          <View style={styles.debugSection}>
-            <Text style={styles.debugTitle}>Debug Info</Text>
-            <Text style={styles.debugText}>Cover Image: {invitation.coverImage ? 'Yes' : 'No'}</Text>
-            <Text style={styles.debugText}>Attachments: {invitation.attachments ? JSON.stringify(invitation.attachments) : 'undefined'}</Text>
-          </View>
-        )}
-
-        {/* Main Details Card */}
         <View style={styles.detailsCard}>
           <Text style={styles.title}>{invitation.title}</Text>
           
@@ -382,7 +423,6 @@ export default function EventDetailsHub() {
             </Text>
           </TouchableOpacity>
 
-          {/* Video Link */}
           {invitation.videoUrl && (
             <TouchableOpacity 
               style={styles.infoRow}
@@ -395,12 +435,9 @@ export default function EventDetailsHub() {
             </TouchableOpacity>
           )}
 
-          {/* --- THE LOGIC FORK --- */}
           <View style={styles.actionsContainer}>
             {isHost ? (
-              // HOST VIEW
               <View>
-                {/* Analytics Summary */}
                 <Text style={styles.sectionTitle}>RSVP Analytics</Text>
                 <View style={styles.analyticsRow}>
                   <View style={[styles.analyticsCard, { backgroundColor: COLORS.success }]}>
@@ -417,7 +454,6 @@ export default function EventDetailsHub() {
                   </View>
                 </View>
 
-                {/* Attendee Roster */}
                 {guests.length > 0 && (
                   <View style={styles.guestListContainer}>
                     <Text style={styles.sectionTitle}>Attendee Roster</Text>
@@ -425,32 +461,41 @@ export default function EventDetailsHub() {
                       {attending} Attending, {declined} Declined{pending > 0 ? `, ${pending} Pending` : ''}
                     </Text>
                     {guests.slice(0, 5).map((guest: any, index: number) => {
-                      // Access nested recipient data from backend
                       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
                       const guestEmail = guest.recipient?.email || guest.email || '';
                       const rsvpStatus = guest.rsvpStatus;
                       
                       return (
-                        <View key={index} style={styles.guestRow}>
-                          <View style={styles.guestAvatar}>
-                            <Text style={styles.guestInitial}>
-                              {guestName.charAt(0).toUpperCase()}
-                            </Text>
+                        <View key={index} style={[styles.guestRow, { justifyContent: 'space-between' }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <View style={styles.guestAvatar}>
+                              <Text style={styles.guestInitial}>
+                                {guestName.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <View style={styles.guestInfo}>
+                              <Text style={styles.guestName}>{guestName}</Text>
+                              <Text style={styles.guestEmail}>{guestEmail}</Text>
+                            </View>
                           </View>
-                          <View style={styles.guestInfo}>
-                            <Text style={styles.guestName}>{guestName}</Text>
-                            <Text style={styles.guestEmail}>{guestEmail}</Text>
-                          </View>
-                          <View style={[
-                            styles.guestStatus,
-                            rsvpStatus === 'accepted' && styles.guestStatusGoing,
-                            rsvpStatus === 'declined' && styles.guestStatusDeclined,
-                            (!rsvpStatus || rsvpStatus === 'tentative') && styles.guestStatusPending
-                          ]}>
-                            <Text style={styles.guestStatusText}>
-                              {rsvpStatus === 'accepted' ? 'Going' : 
-                               rsvpStatus === 'declined' ? 'No' : 'Pending'}
-                            </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+                            <View style={[
+                              styles.guestStatus,
+                              rsvpStatus === 'accepted' && styles.guestStatusGoing,
+                              rsvpStatus === 'declined' && styles.guestStatusDeclined,
+                              (!rsvpStatus || rsvpStatus === 'tentative') && styles.guestStatusPending
+                            ]}>
+                              <Text style={styles.guestStatusText}>
+                                {rsvpStatus === 'accepted' ? 'Going' : 
+                                 rsvpStatus === 'declined' ? 'No' : 'Pending'}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.removeGuestButton}
+                              onPress={() => handleRemoveGuest(guest.recipient?._id)}
+                            >
+                              <Text style={styles.removeGuestText}>Remove</Text>
+                            </TouchableOpacity>
                           </View>
                         </View>
                       );
@@ -461,7 +506,6 @@ export default function EventDetailsHub() {
                   </View>
                 )}
 
-                {/* Action Buttons */}
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: COLORS.primary, marginTop: SPACING.lg }]} 
                   onPress={() => router.push('/invite/' + id)}
@@ -485,12 +529,10 @@ export default function EventDetailsHub() {
                   <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>Edit Event Details</Text>
                 </TouchableOpacity>
 
-                {/* Edit Media Section */}
                 {isEditing && (
                   <View style={styles.editSection}>
                     <Text style={styles.editSectionTitle}>Edit Event Media</Text>
                     
-                    {/* Video URL */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Video URL (Optional)</Text>
                       <TextInput
@@ -504,7 +546,6 @@ export default function EventDetailsHub() {
                       />
                     </View>
 
-                    {/* Google Maps Link */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Google Maps Link (Optional)</Text>
                       <TextInput
@@ -518,7 +559,6 @@ export default function EventDetailsHub() {
                       />
                     </View>
 
-                    {/* Attachments */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Attachments (max 5)</Text>
                       <TouchableOpacity
@@ -546,7 +586,6 @@ export default function EventDetailsHub() {
                       )}
                     </View>
 
-                    {/* Save Button */}
                     <TouchableOpacity
                       style={[styles.saveButton, saving && styles.saveButtonDisabled]}
                       onPress={handleSaveChanges}
@@ -563,7 +602,6 @@ export default function EventDetailsHub() {
                 )}
               </View>
             ) : (
-              // GUEST VIEW
               <View>
                 <Text style={[styles.sectionTitle, { marginBottom: SPACING.md }]}>Will you attend?</Text>
                 <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
@@ -586,7 +624,6 @@ export default function EventDetailsHub() {
             )}
           </View>
 
-          {/* Description */}
           {invitation.description && (
             <View style={{ marginTop: SPACING.xl }}>
               <Text style={styles.sectionTitle}>About this event</Text>
@@ -595,6 +632,29 @@ export default function EventDetailsHub() {
           )}
 
         </View>
+
+        {isHost && (
+          <View style={styles.bottomControlPanel}>
+            <TouchableOpacity 
+              style={styles.editEventButton}
+              onPress={() => router.push(`/edit/${id}`)}
+            >
+              <Text style={styles.editEventButtonText}>Edit Event Details</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.cancelEventButton, isDeleting && styles.cancelEventButtonDisabled]}
+              onPress={handleDeleteEvent}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.cancelEventButtonText}>Cancel Event</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </>
   );
@@ -636,7 +696,6 @@ const styles = StyleSheet.create({
   actionsContainer: { marginTop: SPACING.xl, paddingTop: SPACING.lg, borderTopWidth: 1, borderColor: COLORS.border },
   sectionTitle: { ...TYPOGRAPHY.header, marginBottom: SPACING.sm },
   
-  // Save Button (for guests)
   saveButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -650,44 +709,22 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     ...SHADOWS.card,
   },
-  saveButtonActive: {
-    backgroundColor: '#F59E0B',
-  },
-  saveButtonIcon: {
-    fontSize: 18,
-    marginRight: 6,
-    color: '#D97706',
-  },
-  saveButtonText: {
-    fontWeight: '600',
-    fontSize: 14,
-    color: '#D97706',
-  },
-  saveButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  saveButtonDisabled: {
-    opacity: 0.7,
-  },
+  saveButtonActive: { backgroundColor: '#F59E0B' },
+  saveButtonIcon: { fontSize: 18, marginRight: 6, color: '#D97706' },
+  saveButtonText: { fontWeight: '600', fontSize: 14, color: '#D97706' },
+  saveButtonTextActive: { color: '#FFFFFF' },
+  saveButtonDisabled: { opacity: 0.7 },
   
-  // Analytics
   analyticsRow: { flexDirection: 'row', gap: SPACING.sm },
   analyticsCard: { flex: 1, padding: SPACING.md, borderRadius: 12, alignItems: 'center' },
   analyticsNumber: { fontSize: 24, fontWeight: 'bold', color: 'white' },
   analyticsLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginTop: 4 },
   
-  // Buttons
   button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   rsvpBtn: { flex: 1, paddingVertical: 14, borderRadius: 100, alignItems: 'center' },
   
-  // Attachments Section
-  attachmentsSection: {
-    marginTop: SPACING.md,
-    marginBottom: SPACING.sm,
-  },
-  attachmentsScroll: {
-    paddingVertical: SPACING.xs,
-  },
+  attachmentsSection: { marginTop: SPACING.md, marginBottom: SPACING.sm },
+  attachmentsScroll: { paddingVertical: SPACING.xs },
   attachmentItem: {
     backgroundColor: COLORS.background,
     borderRadius: 12,
@@ -697,46 +734,15 @@ const styles = StyleSheet.create({
     minWidth: 100,
     ...SHADOWS.card,
   },
-  attachmentIcon: {
-    fontSize: 24,
-    marginBottom: SPACING.xs,
-  },
-  attachmentsCarousel: {
-    backgroundColor: COLORS.card,
-    padding: SPACING.md,
-    marginTop: -40,
-  },
-  attachmentThumbnail: {
-    width: 120,
-    height: 120,
-    borderRadius: 8,
-    marginRight: SPACING.sm,
-    resizeMode: 'cover',
-  },
-  attachmentText: {
-    ...TYPOGRAPHY.small,
-    fontWeight: '500',
-  },
+  attachmentIcon: { fontSize: 24, marginBottom: SPACING.xs },
+  attachmentsCarousel: { backgroundColor: COLORS.card, padding: SPACING.md, marginTop: -40 },
+  attachmentThumbnail: { width: 120, height: 120, borderRadius: 8, marginRight: SPACING.sm, resizeMode: 'cover' },
+  attachmentText: { ...TYPOGRAPHY.small, fontWeight: '500' },
   
-  // Edit Section
-  editSection: {
-    marginTop: SPACING.lg,
-    padding: SPACING.md,
-    backgroundColor: COLORS.background,
-    borderRadius: 16,
-  },
-  editSectionTitle: {
-    ...TYPOGRAPHY.header,
-    marginBottom: SPACING.md,
-  },
-  inputGroup: {
-    marginBottom: SPACING.md,
-  },
-  inputLabel: {
-    ...TYPOGRAPHY.small,
-    fontWeight: '600',
-    marginBottom: SPACING.xs,
-  },
+  editSection: { marginTop: SPACING.lg, padding: SPACING.md, backgroundColor: COLORS.background, borderRadius: 16 },
+  editSectionTitle: { ...TYPOGRAPHY.header, marginBottom: SPACING.md },
+  inputGroup: { marginBottom: SPACING.md },
+  inputLabel: { ...TYPOGRAPHY.small, fontWeight: '600', marginBottom: SPACING.xs },
   input: {
     backgroundColor: COLORS.card,
     borderRadius: 12,
@@ -756,142 +762,48 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: COLORS.border,
   },
-  attachmentButtonText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textMuted,
-    fontWeight: '500',
-    marginLeft: SPACING.sm,
-  },
-  attachmentPreviewContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: SPACING.sm,
-    gap: SPACING.sm,
-  },
-  attachmentPreview: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-  },
+  attachmentButtonText: { ...TYPOGRAPHY.body, color: COLORS.textMuted, fontWeight: '500', marginLeft: SPACING.sm },
+  attachmentPreviewContainer: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SPACING.sm, gap: SPACING.sm },
+  attachmentPreview: { width: 80, height: 80, borderRadius: 8, overflow: 'hidden', position: 'relative' },
+  previewImage: { width: '100%', height: '100%' },
   removeButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.danger,
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: COLORS.danger, justifyContent: 'center', alignItems: 'center',
   },
-  removeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  removeText: { color: '#FFFFFF', fontSize: 12, fontWeight: 'bold' },
   
-  // Guest List Styles
-  guestListContainer: {
-    marginTop: SPACING.lg,
-    backgroundColor: COLORS.background,
-    borderRadius: 12,
-    padding: SPACING.md,
-  },
-  guestSummaryText: {
-    ...TYPOGRAPHY.bodyMuted,
-    marginBottom: SPACING.md,
-  },
-  guestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  guestAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.sm,
-  },
-  guestInitial: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  guestInfo: {
-    flex: 1,
-  },
-  guestName: {
-    ...TYPOGRAPHY.body,
-    fontWeight: '600',
-  },
-  guestEmail: {
-    ...TYPOGRAPHY.small,
-    color: COLORS.textMuted,
-  },
-  guestStatus: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 70,
-    alignItems: 'center',
-  },
-  guestStatusGoing: {
-    backgroundColor: COLORS.success + '20',
-  },
-  guestStatusDeclined: {
-    backgroundColor: COLORS.danger + '20',
-  },
-  guestStatusPending: {
-    backgroundColor: COLORS.accent + '20',
-  },
-  guestStatusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  moreGuestsText: {
-    ...TYPOGRAPHY.small,
-    color: COLORS.textMuted,
-    textAlign: 'center',
-    marginTop: SPACING.sm,
-  },
+  guestListContainer: { marginTop: SPACING.lg, backgroundColor: COLORS.background, borderRadius: 12, padding: SPACING.md },
+  guestSummaryText: { ...TYPOGRAPHY.bodyMuted, marginBottom: SPACING.md },
+  guestRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.sm, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  guestAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginRight: SPACING.sm },
+  guestInitial: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  guestInfo: { flex: 1 },
+  guestName: { ...TYPOGRAPHY.body, fontWeight: '600' },
+  guestEmail: { ...TYPOGRAPHY.small, color: COLORS.textMuted },
+  guestStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, minWidth: 70, alignItems: 'center' },
+  guestStatusGoing: { backgroundColor: COLORS.success + '20' },
+  guestStatusDeclined: { backgroundColor: COLORS.danger + '20' },
+  guestStatusPending: { backgroundColor: COLORS.accent + '20' },
+  guestStatusText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
+  moreGuestsText: { ...TYPOGRAPHY.small, color: COLORS.textMuted, textAlign: 'center', marginTop: SPACING.sm },
   
-  // Debug Section
-  debugSection: {
-    backgroundColor: '#FFF3CD',
-    padding: SPACING.md,
-    marginTop: SPACING.sm,
-    borderRadius: 8,
-  },
-  debugTitle: {
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginBottom: SPACING.xs,
-  },
-  debugText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
+  debugSection: { backgroundColor: '#FFF3CD', padding: SPACING.md, marginTop: SPACING.sm, borderRadius: 8 },
+  debugTitle: { fontWeight: 'bold', fontSize: 14, marginBottom: SPACING.xs },
+  debugText: { fontSize: 12, color: '#666', marginBottom: 4 },
   
-  // No Attachments
-  noAttachments: {
-    padding: SPACING.lg,
-    alignItems: 'center',
-  },
-  noAttachmentsText: {
-    ...TYPOGRAPHY.bodyMuted,
-    fontStyle: 'italic',
-  },
+  noAttachments: { padding: SPACING.lg, alignItems: 'center' },
+  noAttachmentsText: { ...TYPOGRAPHY.bodyMuted, fontStyle: 'italic' },
+  
+  swipeBadge: { position: 'absolute', bottom: 16, right: 16, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  swipeBadgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+  
+  removeGuestButton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: COLORS.danger, backgroundColor: 'transparent' },
+  removeGuestText: { color: COLORS.danger, fontSize: 12, fontWeight: '600' },
+  
+  bottomControlPanel: { marginTop: SPACING.lg, marginBottom: SPACING.xl, paddingHorizontal: SPACING.lg },
+  editEventButton: { backgroundColor: COLORS.primary, paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: SPACING.md },
+  editEventButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  cancelEventButton: { backgroundColor: COLORS.danger, paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
+  cancelEventButtonDisabled: { opacity: 0.7 },
+  cancelEventButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });

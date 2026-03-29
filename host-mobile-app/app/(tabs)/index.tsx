@@ -1,98 +1,155 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Image, RefreshControl } from 'react-native';
+import { useRouter, useFocusEffect, Stack } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { Ionicons } from '@expo/vector-icons';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const router = useRouter();
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  // Re-fetch data every time you land on this screen
+  useFocusEffect(
+    useCallback(() => {
+      fetchEvents();
+    }, [])
+  );
+
+  const fetchEvents = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      // Fetch all invitations (hosted and invited)
+      const response = await axios.get(`${API_URL}/invitations`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setEvents(Array.isArray(response.data) ? response.data : response.data.invitations || []);
+    } catch (error) {
+      console.error("Error fetching events:", error);
+      setEvents([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchEvents();
+  };
+
+  const renderEventCard = ({ item }: { item: any }) => {
+    if (!item) return null;
+
+    const eventDate = new Date(item.eventDate).toLocaleDateString('en-US', { 
+      month: 'short', day: 'numeric', year: 'numeric' 
+    });
+
+    return (
+      <TouchableOpacity 
+        style={styles.card}
+        activeOpacity={0.9}
+        onPress={() => router.push(`/event/${item._id}`)}
+      >
+        {item.coverImage ? (
+          <Image source={{ uri: item.coverImage }} style={styles.cardImage} />
+        ) : (
+          <View style={[styles.cardImage, styles.placeholderImage]}>
+            <Text style={{ fontSize: 32 }}>📅</Text>
+          </View>
+        )}
+        
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.title || 'Untitled Event'}</Text>
+          
+          <View style={styles.row}>
+            <Text style={styles.icon}>📅</Text>
+            <Text style={styles.infoText}>{eventDate}</Text>
+          </View>
+          
+          <View style={styles.row}>
+            <Text style={styles.icon}>📍</Text>
+            <Text style={styles.infoText} numberOfLines={1}>{item.location || 'Location TBD'}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.centerContainer}>
+        <Stack.Screen options={{ title: 'My Events', headerShown: true }} />
+        <ActivityIndicator size="large" color="#4F46E5" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Stack.Screen 
+        options={{ 
+          title: 'My Events', 
+          headerShown: true,
+          headerRight: () => (
+            <TouchableOpacity onPress={() => router.push('/create')} style={{ marginRight: 15 }}>
+              <Ionicons name="add-circle" size={28} color="#4F46E5" />
+            </TouchableOpacity>
+          )
+        }} 
+      />
+      
+      <FlatList
+        data={events}
+        keyExtractor={(item, index) => item?._id ? item._id.toString() : index.toString()}
+        renderItem={renderEventCard}
+        contentContainerStyle={events.length === 0 ? styles.emptyList : styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4F46E5" />
+        }
+        ListEmptyComponent={() => (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>🎉</Text>
+            <Text style={styles.emptyTitle}>No Events Yet</Text>
+            <Text style={styles.emptyText}>
+              You don't have any upcoming events. Tap the + icon to create your first invitation.
+            </Text>
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6' },
+  listContent: { padding: 16, paddingBottom: 40 },
+  emptyList: { flex: 1, justifyContent: 'center' },
+  card: {
+    backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, overflow: 'hidden',
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  cardImage: { width: '100%', height: 160, resizeMode: 'cover' },
+  placeholderImage: { backgroundColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
+  cardContent: { padding: 16 },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827', marginBottom: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  icon: { fontSize: 14, marginRight: 6 },
+  infoText: { fontSize: 14, color: '#4B5563', flex: 1 },
+  emptyContainer: { alignItems: 'center', paddingHorizontal: 32 },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 8 },
+  emptyText: { fontSize: 15, color: '#6B7280', textAlign: 'center', lineHeight: 22 },
 });

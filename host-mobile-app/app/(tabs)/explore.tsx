@@ -1,112 +1,208 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Image, RefreshControl } from 'react-native';
+import { useRouter, useFocusEffect, Stack } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
-export default function TabTwoScreen() {
+export default function ExploreScreen() {
+  const router = useRouter();
+  const [savedEvents, setSavedEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch data every time the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchSavedEvents();
+    }, [])
+  );
+
+  const fetchSavedEvents = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      const response = await axios.get(`${API_URL}/invitations/saved`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Defensively ensure we are setting an array
+      setSavedEvents(Array.isArray(response.data) ? response.data : response.data.savedInvitations || []);
+    } catch (error) {
+      console.error("Error fetching saved events:", error);
+      // Don't crash, just show an empty list
+      setSavedEvents([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchSavedEvents();
+  };
+
+  const renderEventCard = ({ item }: { item: any }) => {
+    if (!item) return null;
+
+    // Safely extract data
+    const eventDate = new Date(item.eventDate).toLocaleDateString('en-US', { 
+      month: 'short', day: 'numeric', year: 'numeric' 
+    });
+
+    return (
+      <TouchableOpacity 
+        style={styles.card}
+        activeOpacity={0.9}
+        onPress={() => router.push(`/event/${item._id}?mode=attending`)}
+      >
+        {item.coverImage ? (
+          <Image source={{ uri: item.coverImage }} style={styles.cardImage} />
+        ) : (
+          <View style={[styles.cardImage, styles.placeholderImage]}>
+            <Text style={{ fontSize: 32 }}>📅</Text>
+          </View>
+        )}
+        
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.title || 'Untitled Event'}</Text>
+          
+          <View style={styles.row}>
+            <Text style={styles.icon}>📅</Text>
+            <Text style={styles.infoText}>{eventDate}</Text>
+          </View>
+          
+          <View style={styles.row}>
+            <Text style={styles.icon}>📍</Text>
+            <Text style={styles.infoText} numberOfLines={1}>{item.location || 'Location TBD'}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.centerContainer}>
+        <Stack.Screen options={{ title: 'Saved Events', headerShown: true }} />
+        <ActivityIndicator size="large" color="#4F46E5" />
+      </View>
+    );
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <Stack.Screen options={{ title: 'Saved Events', headerShown: true }} />
+      
+      <FlatList
+        data={savedEvents}
+        keyExtractor={(item, index) => item?._id ? item._id.toString() : index.toString()}
+        renderItem={renderEventCard}
+        contentContainerStyle={savedEvents.length === 0 ? styles.emptyList : styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4F46E5" />
+        }
+        ListEmptyComponent={() => (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>🔖</Text>
+            <Text style={styles.emptyTitle}>No Saved Events</Text>
+            <Text style={styles.emptyText}>
+              Events you bookmark will appear here so you can easily find them later.
+            </Text>
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: '#F3F4F6', // Neutral background
   },
-  titleContainer: {
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  emptyList: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  cardImage: {
+    width: '100%',
+    height: 160,
+    resizeMode: 'cover',
+  },
+  placeholderImage: {
+    backgroundColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardContent: {
+    padding: 16,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  row: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  icon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#4B5563',
+    flex: 1,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });
