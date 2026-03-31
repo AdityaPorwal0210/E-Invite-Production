@@ -37,6 +37,20 @@ export default function RootLayout() {
           }} 
         />
         <Stack.Screen 
+          name="invitation/[id]" 
+          options={{ 
+            headerShown: false,
+            title: 'Invitation'
+          }} 
+        />
+        <Stack.Screen 
+          name="event/[id]" 
+          options={{ 
+            headerShown: false,
+            title: 'Event Details'
+          }} 
+        />
+        <Stack.Screen 
           name="(tabs)" 
           options={{ 
             headerShown: false,
