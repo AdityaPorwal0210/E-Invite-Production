@@ -28,7 +28,7 @@ const Login = () => {
         idToken: credentialResponse.credential
       });
       login(response.data.token, response.data.user);
-      toast.success('Welcome back!');
+      toast.success(' back!');
       navigate(returnTo);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Google login failed');
@@ -48,7 +48,7 @@ const Login = () => {
       
       // Login successful
       login(response.data.token, response.data.user);
-      toast.success('Welcome back!');
+      toast.success('USB Bridge Active!');
       navigate(returnTo);
     } catch (err) {
       const message = err.response?.data?.message;

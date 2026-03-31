@@ -17,13 +17,37 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 
-const API_URL = 'https://invitoinbox.onrender.com/api/users/login';
+// Define baseUrl using environment variable with fallback
+const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+
+  const handleLoginSuccess = async (token: string, userData: any) => {
+    try {
+      await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      
+      console.log('✅ Login successful, checking for pending route...');
+      
+      const pendingRoute = await AsyncStorage.getItem('pendingRoute');
+      
+      if (pendingRoute) {
+        console.log('📩 Found pending route:', pendingRoute);
+        await AsyncStorage.removeItem('pendingRoute');
+        router.replace(pendingRoute as any);
+      } else {
+        console.log('📱 No pending route, going to dashboard');
+        router.replace('/dashboard'); 
+      }
+    } catch (error) {
+      console.error('❌ Login success handler error:', error);
+      router.replace('/dashboard');
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -34,25 +58,26 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const response = await axios.post(API_URL, {
+      const loginUrl = `${baseUrl}/users/login`;
+      console.log('Login attempt:', { url: loginUrl, email });
+
+      const response = await axios.post(loginUrl, {
         email,
         password,
       });
 
-      // Save token to AsyncStorage
-      if (response.data.token) {
-        await AsyncStorage.setItem('authToken', response.data.token);
-        await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
-      }
+      console.log('Login response received:', response.data);
 
-      Alert.alert('Success', 'Login successful!');
-      router.replace('/dashboard');
+      // Handle login success with pending invitation check
+      await handleLoginSuccess(response.data.token, response.data.user);
       
-      // Clear the form
+      // Clear the form AFTER handling navigation
       setEmail('');
       setPassword('');
       
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Login Error Details:', error?.response?.data || error?.message || error);
+      
       let errorMessage = 'Login failed. Please try again.';
       
       if (axios.isAxiosError(error)) {
@@ -80,7 +105,7 @@ export default function LoginScreen() {
         >
           {/* Header Section */}
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.title}>Welcome </Text>
             <Text style={styles.subtitle}>Sign in to manage your events</Text>
           </View>
 

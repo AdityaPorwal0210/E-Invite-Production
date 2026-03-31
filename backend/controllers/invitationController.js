@@ -7,18 +7,30 @@ const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 
 // Helper to generate URLs for email templates
+// Helper to generate URLs for email templates
 const getEmailUrls = (invitationId) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const mobileAppScheme = process.env.MOBILE_APP_URL_SCHEME || '';
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const expoIP = process.env.EXPO_DEV_IP || '10.113.44.12';
+  const expoPort = process.env.EXPO_PORT || '8081';
   
   const webUrl = `${frontendUrl}/invitation/${invitationId}`;
-  const mobileUrl = mobileAppScheme 
-    ? `${mobileAppScheme}/invitation/${invitationId}` 
-    : null;
+  
+  let mobileUrl;
+  if (isDevelopment) {
+    // For Expo Go: Use the exp:// scheme with --/ path prefix
+    mobileUrl = `exp://${expoIP}:${expoPort}/--/invitation/${invitationId}`;
+  } else {
+    // For production builds: Use custom scheme
+    mobileUrl = `hostapp://invitation/${invitationId}`;
+  }
+  
+  console.log('📱 Generated mobile URL:', mobileUrl);
   
   return { webUrl, mobileUrl, frontendUrl };
 };
 
+// Helper to build email body with both web and mobile links
 // Helper to build email body with both web and mobile links
 const buildInvitationEmailBody = (greeting, invitation, hostName, isUnregistered = false) => {
   const { webUrl, mobileUrl } = getEmailUrls(invitation._id);
@@ -29,14 +41,17 @@ Event Details:
 - Location: ${isUnregistered ? '(signup to see)' : invitation.location}
 `;
 
-  let linkSection = `
-View and RSVP here: ${webUrl}
-`;
+  let linkSection = '';
   
   if (mobileUrl) {
     linkSection = `
-📱 Mobile App: ${mobileUrl}
-🌐 Web App: ${webUrl}
+Open in Mobile App: ${mobileUrl}
+
+Or view in browser: ${webUrl}
+`;
+  } else {
+    linkSection = `
+View and RSVP here: ${webUrl}
 `;
   }
   

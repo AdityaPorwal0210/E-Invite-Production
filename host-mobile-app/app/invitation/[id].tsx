@@ -51,11 +51,49 @@ export default function InvitationDetailScreen() {
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [authCheckComplete, setAuthCheckComplete] = useState<boolean>(false);
 
   useEffect(() => {
-    fetchInvitation();
-    fetchCurrentUser();
+    console.log('🔗 Invitation screen opened with ID:', id);
+    checkAuthAndFetch();
   }, [id]);
+
+  const checkAuthAndFetch = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      
+      console.log('🔐 Auth check:', token ? 'Token found' : 'No token');
+      
+      if (!token) {
+        // User not logged in - save invitation ID and redirect to login
+        console.log('🔒 User not authenticated, saving invitation ID and redirecting to login');
+        
+        await AsyncStorage.setItem('pendingInvitationId', id as string);
+        
+        Alert.alert(
+          'Login Required',
+          'Please log in to view this invitation',
+          [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
+        );
+        
+        setAuthCheckComplete(true);
+        setLoading(false);
+        return;
+      }
+      
+      // User is logged in - proceed to fetch invitation
+      console.log('✅ User authenticated, fetching invitation');
+      setAuthCheckComplete(true);
+      await fetchCurrentUser();
+      await fetchInvitation();
+      
+    } catch (error) {
+      console.error('❌ Auth check error:', error);
+      setAuthCheckComplete(true);
+      setLoading(false);
+      Alert.alert('Error', 'Failed to verify authentication');
+    }
+  };
 
   const fetchCurrentUser = async () => {
     try {
@@ -63,6 +101,7 @@ export default function InvitationDetailScreen() {
       if (userStr) {
         const userData = JSON.parse(userStr);
         setCurrentUserId(userData._id || userData.id);
+        console.log('👤 Current user ID:', userData._id || userData.id);
       }
     } catch (e) {
       console.log('Failed to get current user');
@@ -73,17 +112,15 @@ export default function InvitationDetailScreen() {
     try {
       const token = await AsyncStorage.getItem('authToken');
       
-      if (!token) {
-        Alert.alert('Error', 'Please log in to view this invitation');
-        router.replace('/');
-        return;
-      }
+      console.log('📡 Fetching invitation from API:', id);
 
       const response = await axios.get(`${API_URL}/invitations/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       const data = response.data;
+      console.log('📩 Invitation data received:', data.title);
+      
       setInvitation(data);
       setMyRsvp(data.rsvpStatus || '');
       setIsSaved(data.isSaved || false);
@@ -96,8 +133,10 @@ export default function InvitationDetailScreen() {
         setCurrentUserId(userId);
         const ownerId = data.host?._id || data.user;
         setIsOwner(ownerId === userId);
+        console.log('👑 Is owner:', ownerId === userId);
       }
     } catch (err) {
+      console.error('❌ Fetch invitation error:', err);
       if (axios.isAxiosError(err)) {
         Alert.alert('Error', err.response?.data?.message || 'Failed to fetch invitation');
       } else if (err instanceof Error) {
@@ -113,6 +152,8 @@ export default function InvitationDetailScreen() {
   const handleRSVP = async (status: string) => {
     try {
       const token = await AsyncStorage.getItem('authToken');
+      
+      console.log('📝 Updating RSVP to:', status);
       
       await axios.put(
         `${API_URL}/invitations/${id}/rsvp`,
@@ -183,13 +224,13 @@ export default function InvitationDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (loading || !authCheckComplete) {
     return (
       <SafeAreaView style={styles.container}>
         <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading event...</Text>
+          <Text style={styles.loadingText}>Opening invitation...</Text>
         </View>
       </SafeAreaView>
     );
@@ -201,7 +242,7 @@ export default function InvitationDetailScreen() {
         <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
         <View style={styles.centered}>
           <Text style={styles.errorText}>Failed to load event</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchInvitation}>
+          <TouchableOpacity style={styles.retryButton} onPress={checkAuthAndFetch}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -408,6 +449,7 @@ export default function InvitationDetailScreen() {
   );
 }
 
+// ... keep all your existing styles ...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -516,7 +558,6 @@ const styles = StyleSheet.create({
   eventHost: {
     ...TYPOGRAPHY.bodyMuted,
   },
-  // Owner Actions
   ownerActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -557,7 +598,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  // RSVP Section
   rsvpSection: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.md,
@@ -588,7 +628,6 @@ const styles = StyleSheet.create({
   rsvpButtonTextActive: {
     color: '#FFFFFF',
   },
-  // Video Section
   videoSection: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.lg,
@@ -604,7 +643,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  // Description Section
   descriptionSection: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.lg,
@@ -617,7 +655,6 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     lineHeight: 24,
   },
-  // Attachments Section
   attachmentsSection: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.lg,
