@@ -1,130 +1,76 @@
-import React, { useEffect } from 'react';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, useSegments, usePathname, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import { useEffect, useState } from 'react';
+import { Stack, useRouter, usePathname, useRootNavigationState } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SplashScreen from 'expo-splash-screen';
+import * as Linking from 'expo-linking';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// 1. FREEZE THE UI visually.
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const segments = useSegments();
-  const pathname = usePathname();
   const router = useRouter();
+  const pathname = usePathname();
+  const osUrl = Linking.useURL(); 
+  
+  // THE FIX: This is the official Expo way to know if the router has finished booting
+  const navigationState = useRootNavigationState(); 
+  
+  const [isReady, setIsReady] = useState(false);
 
-  // Auth Guard with Deep-Link Capture
-  // Auth Guard with Deep-Link Capture
   useEffect(() => {
+    // 2. Do absolutely nothing until the Navigation State has a valid key
+    if (!navigationState?.key) return;
+
     const enforceAuth = async () => {
-      // 1. Do not act until Expo Router has actually mounted the path segments
-      if (!segments || !segments[0]) return;
-      const currentPath = pathname;
-      const firstSegment = segments[0];
-      const token = await AsyncStorage.getItem('authToken');
+      try {
+        console.log(`--- APP WAKE UP ---`);
+        console.log(`OS URL: ${osUrl}`);
+        console.log(`Router Path: ${pathname}`);
 
-      // 2. Define what counts as an unprotected route (Login screen)
-      const isLoginScreen = currentPath === '/' || firstSegment === 'index';
-
-      console.log(`--- ROUTER CHECK ---`);
-      console.log(`Target Path: ${currentPath}`);
-      console.log(`Has Token: ${!!token}`);
-
-      // 3. The Intercept Logic
-      if (!token && !isLoginScreen) {
-        console.log(`🚨 Unauthorized route attempt intercepted!`);
+        const token = await AsyncStorage.getItem('authToken');
         
-        // Save the deep link specifically for events/invitations
-        if (currentPath.includes('/invitation') || currentPath.includes('/event')) {
-          await AsyncStorage.setItem('pendingRoute', currentPath);
-          console.log(`✅ MEMORY SAVED: pendingRoute -> ${currentPath}`);
-        } else {
-          console.log(`Ignored path for memory: ${currentPath}`);
-        }
+        // Simpler check for the front door
+        const isLoginScreen = pathname === '/' || pathname === '/index';
 
-        // 4. Kick to the front door
-        router.replace('/');
+        // 3. Intercept Logic
+        if (!token && !isLoginScreen) {
+          console.log(`🚨 Unauthorized attempt intercepted!`);
+          
+          const targetPath = osUrl || pathname;
+
+          if (targetPath && (targetPath.includes('/invitation') || targetPath.includes('/event'))) {
+            const cleanRoute = targetPath.split('/--')[1] || targetPath;
+            await AsyncStorage.setItem('pendingRoute', cleanRoute);
+            console.log(`✅ MEMORY SAVED: pendingRoute -> ${cleanRoute}`);
+          }
+
+          router.replace('/');
+        }
+      } catch (error) {
+        console.error('Layout Guard Error:', error);
+      } finally {
+        // 4. Drop the Splash Screen safely
+        if (!isReady) {
+          setIsReady(true);
+          await SplashScreen.hideAsync();
+        }
       }
     };
 
     enforceAuth();
-  }, [segments, pathname]); // Re-run this check exactly when the route actually changes
+  }, [navigationState?.key, pathname, osUrl]); // React to the exact moment navigation is ready
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack initialRouteName="index">
-        <Stack.Screen 
-          name="index" 
-          options={{ 
-            headerShown: false,
-            title: 'Login'
-          }} 
-        />
-        <Stack.Screen 
-          name="dashboard" 
-          options={{ 
-            headerShown: false,
-            title: 'Dashboard'
-          }} 
-        />
-        <Stack.Screen 
-          name="create" 
-          options={{ 
-            headerShown: false,
-            title: 'Create Event'
-          }} 
-        />
-        <Stack.Screen 
-          name="invitation/[id]" 
-          options={{ 
-            headerShown: false,
-            title: 'Invitation'
-          }} 
-        />
-        <Stack.Screen 
-          name="event/[id]" 
-          options={{ 
-            headerShown: false,
-            title: 'Event Details'
-          }} 
-        />
-        <Stack.Screen 
-          name="saved" 
-          options={{ 
-            headerShown: false,
-            title: 'Saved Events'
-          }} 
-        />
-        <Stack.Screen 
-          name="groups" 
-          options={{ 
-            headerShown: false,
-            title: 'Groups'
-          }} 
-        />
-        <Stack.Screen 
-          name="invite/[id]" 
-          options={{ 
-            headerShown: false,
-            title: 'Invite Guests'
-          }} 
-        />
-        <Stack.Screen 
-          name="edit/[id]" 
-          options={{ 
-            headerShown: false,
-            title: 'Edit Event'
-          }} 
-        />
-        <Stack.Screen 
-          name="modal" 
-          options={{ 
-            presentation: 'modal', 
-            title: 'Modal' 
-          }} 
-        />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="dashboard" />
+      <Stack.Screen name="create" />
+      <Stack.Screen name="invitation/[id]" />
+      <Stack.Screen name="event/[id]" />
+      <Stack.Screen name="saved" />
+      <Stack.Screen name="groups" />
+      <Stack.Screen name="invite/[id]" />
+      <Stack.Screen name="edit/[id]" />
+    </Stack>
   );
 }

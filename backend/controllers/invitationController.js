@@ -11,18 +11,20 @@ const fs = require('fs');
 const getEmailUrls = (invitationId) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const expoIP = process.env.EXPO_DEV_IP || '10.113.44.12';
+  
+  // Pull the IP from the .env file we just updated
+  const expoIP = process.env.EXPO_DEV_IP || '127.0.0.1';
   const expoPort = process.env.EXPO_PORT || '8081';
   
   const webUrl = `${frontendUrl}/invitation/${invitationId}`;
   
   let mobileUrl;
   if (isDevelopment) {
-    // For Expo Go: Use the exp:// scheme with --/ path prefix
+    // THE BRIDGE: Forces Expo Go to route the link into the running app
     mobileUrl = `exp://${expoIP}:${expoPort}/--/invitation/${invitationId}`;
   } else {
-    // For production builds: Use custom scheme
-    mobileUrl = `hostapp://invitation/${invitationId}`;
+    // Production App Store build format (for later)
+    mobileUrl = `${process.env.MOBILE_APP_URL_SCHEME || 'hostapp'}://invitation/${invitationId}`;
   }
   
   console.log('📱 Generated mobile URL:', mobileUrl);

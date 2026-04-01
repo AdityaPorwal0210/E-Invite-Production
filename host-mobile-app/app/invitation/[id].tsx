@@ -58,27 +58,17 @@ export default function InvitationDetailScreen() {
     checkAuthAndFetch();
   }, [id]);
 
-  const checkAuthAndFetch = async () => {
+ const checkAuthAndFetch = async () => {
     try {
       const token = await AsyncStorage.getItem('authToken');
       
       console.log('🔐 Auth check:', token ? 'Token found' : 'No token');
       
       if (!token) {
-        // User not logged in - save invitation ID and redirect to login
-        console.log('🔒 User not authenticated, saving invitation ID and redirecting to login');
-        
-        await AsyncStorage.setItem('pendingInvitationId', id as string);
-        
-        Alert.alert(
-          'Login Required',
-          'Please log in to view this invitation',
-          [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
-        );
-        
-        setAuthCheckComplete(true);
-        setLoading(false);
-        return;
+        // DO ABSOLUTELY NOTHING. 
+        // The Master Bouncer in _layout.tsx is already handling the redirect.
+        // If we throw alerts or route here, we will cause a Call Stack crash.
+        return; 
       }
       
       // User is logged in - proceed to fetch invitation
@@ -91,7 +81,6 @@ export default function InvitationDetailScreen() {
       console.error('❌ Auth check error:', error);
       setAuthCheckComplete(true);
       setLoading(false);
-      Alert.alert('Error', 'Failed to verify authentication');
     }
   };
 

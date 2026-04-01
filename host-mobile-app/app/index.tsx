@@ -37,8 +37,19 @@ export default function LoginScreen() {
       
       if (pendingRoute) {
         console.log('📩 Found pending route:', pendingRoute);
+        
+        // Empty the box so we don't get stuck in a loop
         await AsyncStorage.removeItem('pendingRoute');
-        router.replace(pendingRoute as any);
+        
+        // 1. Put the Dashboard at the bottom of the stack
+        router.replace('/dashboard');
+        
+        // 2. Wait exactly half a second for the Dashboard to finish loading, 
+        // then push the Invitation on top of it.
+        setTimeout(() => {
+          router.push(pendingRoute as any);
+        }, 500);
+        
       } else {
         console.log('📱 No pending route, going to dashboard');
         router.replace('/dashboard'); 
