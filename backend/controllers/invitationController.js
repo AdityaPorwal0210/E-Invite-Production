@@ -19,9 +19,12 @@ const getEmailUrls = (invitationId) => {
   const webUrl = `${frontendUrl}/invitation/${invitationId}`;
   
   let mobileUrl;
+  console.log('🚨 MEMORY CHECK -> IP:', expoIP, '| PORT:', expoPort);
+
   if (isDevelopment) {
     // THE BRIDGE: Forces Expo Go to route the link into the running app
     mobileUrl = `exp://${expoIP}:${expoPort}/--/invitation/${invitationId}`;
+    console.log('🚨 FINAL LINK ->', mobileUrl);
   } else {
     // Production App Store build format (for later)
     mobileUrl = `${process.env.MOBILE_APP_URL_SCHEME || 'hostapp'}://invitation/${invitationId}`;
