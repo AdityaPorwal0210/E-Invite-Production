@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -11,7 +11,7 @@ import {
   StyleSheet,
   Platform
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
@@ -32,22 +32,60 @@ export default function EditEventScreen() {
   const [googleMapsLink, setGoogleMapsLink] = useState('');
   const [image, setImage] = useState<string | null>(null);
 
-  // UI State
+  // Security & UI State
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [authCheckComplete, setAuthCheckComplete] = useState(false);
 
-  useEffect(() => {
-    fetchEventDetails();
-  }, [id]);
+  useFocusEffect(
+    useCallback(() => {
+      checkAuthAndFetch();
+    }, [id])
+  );
 
-  const fetchEventDetails = async () => {
+  const checkAuthAndFetch = async () => {
     try {
+      setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
+
+      // 1. THE BOUNCER: Kick unauthenticated users
+      if (!token) {
+        console.log('🚨 Unauthenticated attempt to access Edit Screen. Redirecting...');
+        setAuthCheckComplete(true);
+        setLoading(false);
+        await AsyncStorage.setItem('pendingRoute', `/edit/${id}`);
+        router.replace('/');
+        return;
+      }
+
+      // 2. Identify the current user
+      const userStr = await AsyncStorage.getItem('user');
+      let currentId = null;
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        currentId = userData._id || userData.id;
+      }
+
+      // 3. Fetch Event Details
       const response = await axios.get(`${API_URL}/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       const event = response.data;
+
+      // 4. THE VAULT: Verify Host Status
+      const ownerId = event.host?._id || event.user;
+      
+      if (currentId !== ownerId) {
+        console.log('🛑 UNAUTHORIZED: User is not the host of this event.');
+        Alert.alert('Unauthorized', 'You do not have permission to edit this event.');
+        
+        // Send them to the safe view-only page
+        router.replace(`/event/${id}`);
+        return;
+      }
+
+      // 5. Safe to load data into the form
       setTitle(event.title || '');
       setDescription(event.description || '');
       
@@ -60,8 +98,11 @@ export default function EditEventScreen() {
       setVideoUrl(event.videoUrl || '');
       setGoogleMapsLink(event.googleMapsLink || '');
       setImage(event.coverImage || null);
+      
+      setAuthCheckComplete(true);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load event details');
+      console.error('❌ Failed to load event details:', error);
+      Alert.alert('Error', 'Failed to load event details. It may have been deleted.');
       router.back();
     } finally {
       setLoading(false);
@@ -147,9 +188,11 @@ export default function EditEventScreen() {
     }
   };
 
-  if (loading) {
+  // --- RENDERING GUARDS ---
+  if (loading || !authCheckComplete) {
     return (
       <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
+        <Stack.Screen options={{ title: 'Edit Event', headerShown: false }} />
         <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
@@ -157,6 +200,7 @@ export default function EditEventScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Stack.Screen options={{ title: 'Edit Event', headerShown: false }} />
       <Text style={styles.header}>Edit Event</Text>
 
       {/* Image Picker */}

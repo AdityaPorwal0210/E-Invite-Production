@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
@@ -44,16 +44,20 @@ export default function InviteScreen() {
   const [userResults, setUserResults] = useState<Array<{_id: string; name: string; email: string}>>([]);
   const [selectedUsers, setSelectedUsers] = useState<SelectedUser[]>([]);
   const [existingGuestIds, setExistingGuestIds] = useState<string[]>([]);
+  
+  // Security & UI State
   const [loading, setLoading] = useState<boolean>(true);
   const [inviting, setInviting] = useState<boolean>(false);
+  const [authCheckComplete, setAuthCheckComplete] = useState<boolean>(false);
   
   // Debounce ref
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    fetchGroups();
-    fetchExistingGuests();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      checkAuthAndVerifyHost();
+    }, [id])
+  );
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -76,48 +80,77 @@ export default function InviteScreen() {
     };
   }, [userSearch]);
 
-  const fetchGroups = async () => {
+  const checkAuthAndVerifyHost = async () => {
     try {
+      setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
-      
+
+      // 1. THE BOUNCER: Kick unauthenticated users
       if (!token) {
-        Alert.alert('Error', 'Please log in again');
+        console.log('🚨 Unauthenticated attempt to access Invite Screen. Redirecting...');
+        setAuthCheckComplete(true);
+        setLoading(false);
+        await AsyncStorage.setItem('pendingRoute', `/invite/${id}`);
+        router.replace('/');
         return;
       }
 
-      const response = await axios.get(`${API_URL}/groups`, {
+      // 2. Identify current user
+      const userStr = await AsyncStorage.getItem('user');
+      let currentId = null;
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        currentId = userData._id || userData.id;
+      }
+
+      // 3. THE VAULT: Verify Host Status against the event
+      const response = await axios.get(`${API_URL}/invitations/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      setGroups(response.data || []);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        Alert.alert('Error', err.response?.data?.message || 'Failed to fetch groups');
-      } else if (err instanceof Error) {
-        Alert.alert('Error', err.message);
-      } else {
-        Alert.alert('Error', 'Failed to fetch groups');
+      
+      const ownerId = response.data.host?._id || response.data.user;
+      
+      if (currentId !== ownerId) {
+        console.log('🛑 UNAUTHORIZED: User is not the host of this event.');
+        Alert.alert('Unauthorized', 'You do not have permission to invite guests to this event.');
+        router.replace(`/event/${id}`); // Kick them to the safe view
+        return;
       }
+
+      // 4. Authorized. Fetch the required data in parallel to save time.
+      await Promise.all([
+        fetchGroups(token),
+        fetchExistingGuests(token)
+      ]);
+
+      setAuthCheckComplete(true);
+    } catch (err: any) {
+      console.error('❌ Security Check Failed:', err.message);
+      Alert.alert('Error', 'Failed to load event details. It may have been deleted.');
+      router.replace('/dashboard');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchExistingGuests = async () => {
+  const fetchGroups = async (token: string) => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      
-      if (!token) {
-        return;
-      }
+      const response = await axios.get(`${API_URL}/groups`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGroups(response.data || []);
+    } catch (err) {
+      console.log('Failed to fetch groups:', err);
+    }
+  };
 
+  const fetchExistingGuests = async (token: string) => {
+    try {
       const response = await axios.get(`${API_URL}/invitations/${id}/guests`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // Extract user IDs from the guest list
       const guestIds = response.data.guests?.map((guest: any) => {
-        // Check guest.recipient._id or guest.recipient
         if (guest.recipient && typeof guest.recipient === 'object') {
           return guest.recipient._id;
         }
@@ -155,7 +188,6 @@ export default function InviteScreen() {
   };
 
   const addUser = (user: { _id: string; name: string; email: string }) => {
-    // Check if already selected
     if (selectedUsers.some(u => u._id === user._id)) {
       return;
     }
@@ -177,7 +209,6 @@ export default function InviteScreen() {
       return;
     }
     
-    // Create a temporary user with email as ID
     const tempId = `email_${Date.now()}`;
     setSelectedUsers(prev => [...prev, {
       _id: tempId,
@@ -210,21 +241,17 @@ export default function InviteScreen() {
     try {
       const token = await AsyncStorage.getItem('authToken');
       
-      // Transform selected users - separate registered users from email-only guests
       const finalUserIds: string[] = [];
       const emailOnlyGuests: string[] = [];
       const salutationsMap: Record<string, string> = {};
       
       selectedUsers.forEach(user => {
         if (user._id.startsWith('email_')) {
-          // Email-only guest (unregistered)
           emailOnlyGuests.push(user.email);
-          // Also add salutation for email guests (backend supports email as key)
           if (user.salutation && user.salutation !== 'None') {
             salutationsMap[user.email] = user.salutation;
           }
         } else {
-          // Registered user
           finalUserIds.push(user._id);
           if (user.salutation && user.salutation !== 'None') {
             salutationsMap[user._id] = user.salutation;
@@ -236,28 +263,21 @@ export default function InviteScreen() {
         newGroups: selectedGroups,
       };
 
-      // Include registered user IDs if any
       if (finalUserIds.length > 0) {
         payload.newUsers = finalUserIds;
       }
 
-      // Include email-only guests for unregistered invites
       if (emailOnlyGuests.length > 0) {
         payload.newEmails = emailOnlyGuests;
       }
 
-      // Always include salutations if any were set
       if (Object.keys(salutationsMap).length > 0) {
         payload.salutations = salutationsMap;
       }
 
-      console.log("Sending invite payload:", JSON.stringify(payload, null, 2));
-
-      const response = await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
+      await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      console.log("Invite response:", JSON.stringify(response.data, null, 2));
 
       Alert.alert('Success', 'Invitations sent successfully!', [
         {
@@ -266,7 +286,6 @@ export default function InviteScreen() {
         },
       ]);
     } catch (err: any) {
-      console.error("Invite Error Details:", err?.response?.data || (err instanceof Error ? err.message : 'Unknown error'));
       const errorMessage = err?.response?.data?.message || err?.message || 'Failed to send invitations';
       Alert.alert('Error', errorMessage);
     } finally {
@@ -274,13 +293,14 @@ export default function InviteScreen() {
     }
   };
 
-  if (loading) {
+  // --- RENDERING GUARDS ---
+  if (loading || !authCheckComplete) {
     return (
       <SafeAreaView style={styles.container}>
         <Stack.Screen options={{ title: 'Send Invites', headerShown: false }} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>Verifying Permissions...</Text>
         </View>
       </SafeAreaView>
     );

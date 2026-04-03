@@ -18,7 +18,8 @@ interface Attachment {
 }
 
 export default function EventDetailsHub() {
-  const { id, mode } = useLocalSearchParams<{ id: string; mode?: string }>();
+  // CRITICAL FIX: Removed 'mode' from URL params to prevent unauthorized access
+  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
   const [invitation, setInvitation] = useState<any>(null);
@@ -42,39 +43,65 @@ export default function EventDetailsHub() {
   // Carousel state
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const isHost = mode !== 'attending';
+  // Security State
+  const [authCheckComplete, setAuthCheckComplete] = useState(false);
+  const [isHost, setIsHost] = useState(false); // Controlled by database, not URL
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Screen dimensions
   const { width: screenWidth } = Dimensions.get('window');
 
   useFocusEffect(
     useCallback(() => {
-      fetchEventData();
+      checkAuthAndFetch();
     }, [id])
   );
 
-  const fetchEventData = async () => {
+  const checkAuthAndFetch = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
+
+      // 1. THE BOUNCER: Kick unauthenticated users
+      if (!token) {
+        console.log('🚨 Unauthenticated attempt to access Event Details. Redirecting...');
+        setAuthCheckComplete(true);
+        setLoading(false);
+        await AsyncStorage.setItem('pendingRoute', `/event/${id}`);
+        router.replace('/');
+        return;
+      }
+
+      // 2. Identify the current user
+      const userStr = await AsyncStorage.getItem('user');
+      let currentId = null;
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        currentId = userData._id || userData.id;
+        setCurrentUserId(currentId);
+      }
+
       const headers = { Authorization: `Bearer ${token}` };
 
-      // 1. Fetch Event Details (Primary Goal)
+      // 3. Fetch Event Details
       const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { headers });
-      setInvitation(eventRes.data);
-      
-      // Set additional fields if they exist
-      if (eventRes.data.videoUrl) setVideoUrl(eventRes.data.videoUrl);
-      if (eventRes.data.googleMapsLink) setGoogleMapsLink(eventRes.data.googleMapsLink);
-      
-      // 2. Try to map RSVP status if attending
-      if (!isHost && eventRes.data.myRsvp) setMyRsvp(eventRes.data.myRsvp);
-      
-      // 3. Set isSaved state
-      if (eventRes.data.isSaved !== undefined) setIsSaved(eventRes.data.isSaved);
+      const eventData = eventRes.data;
+      setInvitation(eventData);
 
-      // 4. Safely Fetch Guest List (Do not let this crash the main screen)
-      if (isHost) {
+      // 4. THE VAULT: Verify Host Status against the Database
+      const ownerId = eventData.host?._id || eventData.user;
+      const userIsHost = currentId === ownerId;
+      setIsHost(userIsHost); // Lock in their permissions
+
+      if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
+      if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
+      
+      // Map RSVP status if they are just a guest
+      if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
+      if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
+
+      // 5. Fetch Guest List ONLY if the database confirmed they are the host
+      if (userIsHost) {
         try {
           const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers });
           setGuests(guestRes.data.guests || []);
@@ -83,8 +110,12 @@ export default function EventDetailsHub() {
           setGuests([]); 
         }
       }
+
+      setAuthCheckComplete(true);
     } catch (err: any) {
-      console.error("Failed to fetch primary event data:", err.message);
+      console.error("❌ Failed to fetch event data:", err.message);
+      Alert.alert('Error', 'Failed to load event details. It may have been deleted.');
+      router.replace('/dashboard');
     } finally {
       setLoading(false);
     }
@@ -234,7 +265,7 @@ export default function EventDetailsHub() {
       Alert.alert('Success', 'Event media updated successfully!');
       setIsEditing(false);
       setAttachments([]); 
-      fetchEventData();
+      checkAuthAndFetch();
     } catch (err) {
       if (axios.isAxiosError(err)) {
         Alert.alert('Error', err.response?.data?.message || 'Failed to update event media');
@@ -262,7 +293,7 @@ export default function EventDetailsHub() {
               // Trigger the blast shield
               setIsDeleting(true); 
               
-const token = await AsyncStorage.getItem('authToken');
+              const token = await AsyncStorage.getItem('authToken');
               await axios.delete(
                 `${process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api'}/invitations/${id}`,
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -321,13 +352,18 @@ const token = await AsyncStorage.getItem('authToken');
 
   // --- RENDERING GUARDS ---
 
-  if (loading || !invitation) {
+  if (loading || !authCheckComplete) {
     return (
       <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
         <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
         <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
+  }
+
+  // Safe fallback if the data was wiped or redirecting
+  if (!invitation && authCheckComplete) {
+    return null; 
   }
 
   // --- THE BLAST SHIELD ---
