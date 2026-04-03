@@ -661,6 +661,59 @@ const verifyPhoneSync = async (req, res) => {
     res.status(500).json({ message: "Error verifying phone number" });
   }
 };
+
+// --- ADD THIS AT THE BOTTOM ---
+const User = require("../models/User");
+const ReceivedInvitation = require("../models/ReceivedInvitation");
+const Group = require("../models/Group");
+
+exports.verifyPhoneAndSync = async (req, res) => {
+  try {
+    const { phoneNumber, otp } = req.body;
+    const userId = req.user.id;
+
+    // 1. Validate OTP (Hardcoded '123456' for testing until you integrate Twilio)
+    if (otp !== '123456') {
+      return res.status(400).json({ message: "Invalid OTP code." });
+    }
+
+    // 2. Security Check
+    const existingUser = await User.findOne({ phoneNumber, isRegistered: true });
+    if (existingUser && existingUser._id.toString() !== userId) {
+      return res.status(400).json({ message: "Phone number already linked to another account." });
+    }
+
+    // 3. THE MERGE: Reassign invitations sent to this phone number
+    const inviteUpdate = await ReceivedInvitation.updateMany(
+      { phoneNumber: phoneNumber, recipient: { $exists: false } },
+      { recipient: userId }
+    );
+
+    // 4. THE GROUP MERGE: Move from pendingMembers to active members
+    const groupUpdate = await Group.updateMany(
+      { "pendingMembers.phoneNumber": phoneNumber },
+      { 
+        $addToSet: { members: userId },
+        $pull: { pendingMembers: { phoneNumber: phoneNumber } }
+      }
+    );
+
+    // 5. Update User Profile
+    await User.findByIdAndUpdate(userId, { 
+      phoneNumber, 
+      isPhoneVerified: true 
+    });
+
+    res.status(200).json({ 
+      message: "Sync complete!", 
+      invitesLinked: inviteUpdate.modifiedCount,
+      groupsJoined: groupUpdate.modifiedCount
+    });
+  } catch (error) {
+    console.error("Sync Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 module.exports = {
   registerUser,
   loginUser,
