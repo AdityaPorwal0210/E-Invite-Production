@@ -14,6 +14,7 @@ const {
   requestPhoneSync,
   verifyPhoneSync // <-- NEW IMPORT
 } = require("../controllers/userController");
+const userController = require('../controllers/userController');
 const { protect } = require("../middleware/authMiddleware");
 console.log("Check Imports:", { requestPhoneSync, verifyPhoneSync });
 router.post("/register", registerUser);
