@@ -18,6 +18,7 @@ import Profile from './components/Profile';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import HostGuestList from './components/HostGuestList';
+import InviteBridge from './components/InviteBridge'; // <-- NEW IMPORT
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -73,6 +74,9 @@ function App() {
       <Route path="/share/:id" element={<PublicInvite />} />
       <Route path="/groups/join/:id" element={<GroupJoinHandler />} />
       <Route path="/group/invite/:id" element={<GroupInviteLanding />} />
+      
+      {/* THE NEW BRIDGE ROUTE */}
+      <Route path="/invite/:id" element={<InviteBridge />} />
       
       {/* Protected Routes */}
       <Route 
