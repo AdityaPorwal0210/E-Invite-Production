@@ -27,7 +27,7 @@ router.post("/reset-password", resetPassword);
 router.post("/sync-phone/request", protect, requestPhoneSync);
 router.post("/sync-phone/verify", protect, verifyPhoneSync);
 
-router.post('/sync-phone/verify', protect, userController.verifyPhoneAndSync);
+router.post('/sync-phone/verify', protect, userController.verifyPhoneSync);
 
 router.get("/search", protect, searchUsers);
 router.get("/notifications/counts", protect, getNotificationCounts);

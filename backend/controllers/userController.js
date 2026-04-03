@@ -427,5 +427,5 @@ module.exports = {
   getNotificationCounts,
   googleLogin,
   requestPhoneSync,
-  verifyPhoneAndSync
+  verifyPhoneSync
 };
