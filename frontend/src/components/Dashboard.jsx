@@ -2,6 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import PhoneSyncBanner from './PhoneSyncBanner'; // <-- IMPORT ADDED HERE
 
 const Dashboard = () => {
   const [invitations, setInvitations] = useState([]);
@@ -89,6 +90,10 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
+        
+        {/* ADDED PHONE SYNC BANNER HERE */}
+        <PhoneSyncBanner />
+
         {/* Header with Create Event and Logout */}
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-extrabold text-gray-900">

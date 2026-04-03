@@ -31,7 +31,7 @@ const registerUser = async (req, res) => {
       cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
     }
 
-    // 2. Check if a real, registered user already exists with this email
+    // 2. Check if a REAL, active user already exists with this email
     const existingActiveUser = await User.findOne({ email: cleanEmail, isRegistered: true });
     if (existingActiveUser) {
       return res.status(400).json({ message: "User already exists with this email" });
@@ -48,32 +48,34 @@ const registerUser = async (req, res) => {
     let user;
     let isRecycled = false;
 
-    // 5. THE RECYCLE PROTOCOL (Identity Resolution)
-    if (cleanPhone) {
-      // Look for a dummy account waiting for this phone number
-      const placeholderUser = await User.findOne({ 
-        phoneNumber: cleanPhone, 
-        isRegistered: false 
-      });
+    // 5. THE DUAL-RECYCLE PROTOCOL (Identity Resolution)
+    
+    // Check A: Does a dummy account exist for this EMAIL?
+    let placeholderUser = await User.findOne({ email: cleanEmail, isRegistered: false });
 
-      if (placeholderUser) {
-        console.log(`♻️ Recycling placeholder account for ${cleanPhone}`);
-        
-        // Overwrite dummy data with real registration data
-        placeholderUser.name = name;
-        placeholderUser.email = cleanEmail;
-        placeholderUser.password = hashedPassword;
-        placeholderUser.otp = otp;
-        placeholderUser.otpExpires = otpExpires;
-        placeholderUser.isVerified = false; // Still require OTP verification
-        placeholderUser.isRegistered = true; // Upgrade them to a real user
-        
-        user = await placeholderUser.save();
-        isRecycled = true;
-      }
+    // Check B: If not email, does a dummy account exist for this PHONE?
+    if (!placeholderUser && cleanPhone) {
+      placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
     }
 
-    // 6. Create New User (If no placeholder was found)
+    // If we found a placeholder (either by email or phone), recycle it!
+    if (placeholderUser) {
+      console.log(`♻️ Recycling placeholder account. Found by: ${placeholderUser.email === cleanEmail ? 'Email' : 'Phone'}`);
+      
+      placeholderUser.name = name;
+      placeholderUser.email = cleanEmail;
+      placeholderUser.password = hashedPassword;
+      if (cleanPhone) placeholderUser.phoneNumber = cleanPhone; // Ensure we save the phone
+      placeholderUser.otp = otp;
+      placeholderUser.otpExpires = otpExpires;
+      placeholderUser.isVerified = false; 
+      placeholderUser.isRegistered = true; // Upgrade to real user
+      
+      user = await placeholderUser.save();
+      isRecycled = true;
+    }
+
+    // 6. Create New User (If no placeholder was found at all)
     if (!isRecycled) {
       user = await User.create({
         name,
@@ -83,7 +85,7 @@ const registerUser = async (req, res) => {
         otp,
         otpExpires,
         isVerified: false,
-        isRegistered: true // Flag them as a real user
+        isRegistered: true 
       });
     }
 
@@ -96,7 +98,6 @@ const registerUser = async (req, res) => {
       });
     } catch (emailError) {
       console.error("Failed to send OTP email:", emailError);
-      // Continue anyway - don't block registration if email fails
     }
 
     // 8. Return success with OTP required
@@ -458,25 +459,57 @@ const googleLogin = async (req, res) => {
 
     const payload = ticket.getPayload();
     const { email, name, picture } = payload;
+    const cleanEmail = email.toLowerCase().trim();
 
-    // Check if user exists
-    let user = await User.findOne({ email });
+    // 1. Check if a FULLY REGISTERED user already exists
+    let user = await User.findOne({ email: cleanEmail, isRegistered: true });
 
-    if (!user) {
-      // Create new user with random password (they'll never need it)
-      const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(randomPassword, salt);
-
-      user = await User.create({
-        name,
-        email,
-        password: hashedPassword,
-        isVerified: true // Google users are pre-verified
+    if (user) {
+      // Standard Login Flow
+      return res.status(200).json({
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          profileImage: user.profileImage || picture || ''
+        },
+        token: generateToken(user._id)
       });
     }
 
-    // Return user and token
+    // 2. THE RECYCLE PROTOCOL (Email Placeholders Only)
+    let placeholderUser = await User.findOne({ email: cleanEmail, isRegistered: false });
+
+    // Generate the dummy password for the schema requirement
+    const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+    if (placeholderUser) {
+      console.log(`♻️ Recycling EMAIL placeholder account for Google user: ${cleanEmail}`);
+      
+      placeholderUser.name = name;
+      placeholderUser.password = hashedPassword;
+      placeholderUser.profileImage = picture;
+      placeholderUser.isRegistered = true; // UPGRADE to full user
+      placeholderUser.isVerified = true;   // Google users are pre-verified
+      
+      user = await placeholderUser.save();
+    } else {
+      // 3. Create Brand New User
+      console.log(`🆕 Creating new Google user: ${cleanEmail}`);
+      user = await User.create({
+        name,
+        email: cleanEmail,
+        password: hashedPassword,
+        profileImage: picture,
+        isRegistered: true,
+        isVerified: true
+      });
+    }
+
+    // 4. Return user and token for both recycled and new users
     res.status(200).json({
       user: {
         _id: user._id,
@@ -487,6 +520,7 @@ const googleLogin = async (req, res) => {
       },
       token: generateToken(user._id)
     });
+
   } catch (error) {
     console.error("Google Login Error:", error);
     res.status(500).json({ message: "Server error during Google login" });
@@ -521,4 +555,53 @@ const getNotificationCounts = async (req, res) => {
   }
 };
 
+// Paste this near the bottom of the controller file
+const syncPhoneToAccount = async (req, res) => {
+  try {
+    const userId = req.user.id; // This requires your auth middleware
+    const { phoneNumber } = req.body;
+    
+    if (!phoneNumber) {
+      return res.status(400).json({ message: "Phone number is required" });
+    }
+
+    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+
+    // 1. Find the active user
+    const activeUser = await User.findById(userId);
+    if (!activeUser) return res.status(404).json({ message: "User not found" });
+
+    // 2. Look for an orphaned placeholder with this phone number
+    const placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
+
+    if (placeholderUser) {
+      // 3. TRANSFER THE INVITES
+      // Use your ReceivedInvitation model to transfer the invites
+      const ReceivedInvitation = require("../models/ReceivedInvitation");
+      
+      await ReceivedInvitation.updateMany(
+        { recipient: placeholderUser._id },
+        { recipient: activeUser._id }
+      );
+
+      // 4. Update the active user's phone number
+      activeUser.phoneNumber = cleanPhone;
+      await activeUser.save();
+
+      // 5. Destroy the empty placeholder
+      await placeholderUser.deleteOne();
+
+      return res.status(200).json({ message: "Phone synced and invites transferred!" });
+    }
+
+    // If no placeholder exists, just update their profile with the new number
+    activeUser.phoneNumber = cleanPhone;
+    await activeUser.save();
+    res.status(200).json({ message: "Phone number saved to profile." });
+
+  } catch (error) {
+    console.error("Phone Sync Error:", error);
+    res.status(500).json({ message: "Error syncing phone number" });
+  }
+};
 module.exports = { registerUser, loginUser, verifyOTP, searchUsers, deleteUserProfile, updateUserProfile, forgotPassword, resetPassword, getNotificationCounts, googleLogin };
