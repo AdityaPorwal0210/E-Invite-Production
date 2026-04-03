@@ -188,7 +188,7 @@ const handleCopyInviteLink = async () => {
     
     try {
       await Share.share({
-        message: `Join my group on InvitoInbox: ${WEB_APP_URL}/group/invite/${selectedGroup._id}`,
+        message: `Join my group on InvitoInbox: ${WEB_APP_URL}/group/join/${selectedGroup._id}`,
       });
     } catch (error) {
       console.log('Failed to share invite link');

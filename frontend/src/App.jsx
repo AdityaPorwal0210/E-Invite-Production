@@ -72,7 +72,7 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/share/:id" element={<PublicInvite />} />
-      <Route path="/groups/join/:id" element={<GroupJoinHandler />} />
+      <Route path="/group/join/:id" element={<GroupJoinHandler />} />
       <Route path="/group/invite/:id" element={<GroupInviteLanding />} />
       
       {/* THE NEW BRIDGE ROUTE */}
