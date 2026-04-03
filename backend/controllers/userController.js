@@ -25,9 +25,15 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: "Please include all required fields" });
     }
 
-    // 2. Check if user already exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
+    const cleanEmail = email.toLowerCase().trim();
+    let cleanPhone = null;
+    if (phoneNumber) {
+      cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+    }
+
+    // 2. Check if a real, registered user already exists with this email
+    const existingActiveUser = await User.findOne({ email: cleanEmail, isRegistered: true });
+    if (existingActiveUser) {
       return res.status(400).json({ message: "User already exists with this email" });
     }
 
@@ -39,21 +45,52 @@ const registerUser = async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    // 5. Create User
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      phoneNumber,
-      otp,
-      otpExpires,
-      isVerified: false
-    });
+    let user;
+    let isRecycled = false;
 
-    // 6. Send OTP via email
+    // 5. THE RECYCLE PROTOCOL (Identity Resolution)
+    if (cleanPhone) {
+      // Look for a dummy account waiting for this phone number
+      const placeholderUser = await User.findOne({ 
+        phoneNumber: cleanPhone, 
+        isRegistered: false 
+      });
+
+      if (placeholderUser) {
+        console.log(`♻️ Recycling placeholder account for ${cleanPhone}`);
+        
+        // Overwrite dummy data with real registration data
+        placeholderUser.name = name;
+        placeholderUser.email = cleanEmail;
+        placeholderUser.password = hashedPassword;
+        placeholderUser.otp = otp;
+        placeholderUser.otpExpires = otpExpires;
+        placeholderUser.isVerified = false; // Still require OTP verification
+        placeholderUser.isRegistered = true; // Upgrade them to a real user
+        
+        user = await placeholderUser.save();
+        isRecycled = true;
+      }
+    }
+
+    // 6. Create New User (If no placeholder was found)
+    if (!isRecycled) {
+      user = await User.create({
+        name,
+        email: cleanEmail,
+        password: hashedPassword,
+        phoneNumber: cleanPhone,
+        otp,
+        otpExpires,
+        isVerified: false,
+        isRegistered: true // Flag them as a real user
+      });
+    }
+
+    // 7. Send OTP via email
     try {
       await sendEmail({
-        to: email,
+        to: cleanEmail,
         subject: 'Your Verification Code',
         text: `Your OTP is: ${otp}. It expires in 15 minutes.`
       });
@@ -62,12 +99,13 @@ const registerUser = async (req, res) => {
       // Continue anyway - don't block registration if email fails
     }
 
-    // 7. Return success with OTP required
+    // 8. Return success with OTP required
     res.status(201).json({
       message: 'OTP sent to email',
       email: user.email,
       requiresOTP: true
     });
+
   } catch (error) {
     console.error("Registration Error:", error);
     res.status(500).json({ message: "Server error during registration" });
