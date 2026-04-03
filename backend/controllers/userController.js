@@ -6,7 +6,10 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const sendEmail = require("../utils/sendEmail");
-
+const User = require("../models/User");
+const ReceivedInvitation = require("../models/ReceivedInvitation");
+const Group = require("../models/Group");
+// ... other imports
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT Helper Function
@@ -663,9 +666,7 @@ const verifyPhoneSync = async (req, res) => {
 };
 
 // --- ADD THIS AT THE BOTTOM ---
-const User = require("../models/User");
-const ReceivedInvitation = require("../models/ReceivedInvitation");
-const Group = require("../models/Group");
+
 
 exports.verifyPhoneAndSync = async (req, res) => {
   try {
