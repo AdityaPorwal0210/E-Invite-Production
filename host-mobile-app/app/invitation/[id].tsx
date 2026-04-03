@@ -8,9 +8,9 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
-  SafeAreaView,
   Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -61,13 +61,20 @@ export default function InvitationDetailScreen() {
  const checkAuthAndFetch = async () => {
     try {
       const token = await AsyncStorage.getItem('authToken');
-      
       console.log('🔐 Auth check:', token ? 'Token found' : 'No token');
       
       if (!token) {
-        // DO ABSOLUTELY NOTHING. 
-        // The Master Bouncer in _layout.tsx is already handling the redirect.
-        // If we throw alerts or route here, we will cause a Call Stack crash.
+        console.log('🚨 Unauthenticated user hit the invite screen. Redirecting to login...');
+        
+        // 1. Drop the loading state so it doesn't freeze
+        setAuthCheckComplete(true);
+        setLoading(false);
+        
+        // 2. Save the deep link so the Login screen knows where to send them
+        await AsyncStorage.setItem('pendingRoute', `/invitation/${id}`);
+        
+        // 3. Kick them out to the front door
+        router.replace('/');
         return; 
       }
       
@@ -75,7 +82,7 @@ export default function InvitationDetailScreen() {
       console.log('✅ User authenticated, fetching invitation');
       setAuthCheckComplete(true);
       await fetchCurrentUser();
-      await fetchInvitation();
+      await fetchInvitation(token); // Pass token directly
       
     } catch (error) {
       console.error('❌ Auth check error:', error);
@@ -97,10 +104,8 @@ export default function InvitationDetailScreen() {
     }
   };
 
-  const fetchInvitation = async () => {
+ const fetchInvitation = async (token: string) => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      
       console.log('📡 Fetching invitation from API:', id);
 
       const response = await axios.get(`${API_URL}/invitations/${id}`, {
@@ -122,19 +127,13 @@ export default function InvitationDetailScreen() {
         setCurrentUserId(userId);
         const ownerId = data.host?._id || data.user;
         setIsOwner(ownerId === userId);
-        console.log('👑 Is owner:', ownerId === userId);
       }
     } catch (err) {
       console.error('❌ Fetch invitation error:', err);
-      if (axios.isAxiosError(err)) {
-        Alert.alert('Error', err.response?.data?.message || 'Failed to fetch invitation');
-      } else if (err instanceof Error) {
-        Alert.alert('Error', err.message);
-      } else {
-        Alert.alert('Error', 'Failed to fetch invitation');
-      }
+      Alert.alert('Error', 'Failed to load this invitation. It may have been deleted.');
+      router.replace('/'); 
     } finally {
-      setLoading(false);
+      setLoading(false); // ALWAYS turn off the loading spinner
     }
   };
 

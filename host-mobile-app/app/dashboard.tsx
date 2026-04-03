@@ -7,8 +7,8 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';

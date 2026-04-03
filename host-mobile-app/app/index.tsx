@@ -11,8 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
@@ -26,7 +26,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
-  const handleLoginSuccess = async (token: string, userData: any) => {
+ const handleLoginSuccess = async (token: string, userData: any) => {
     try {
       await AsyncStorage.setItem('authToken', token);
       await AsyncStorage.setItem('user', JSON.stringify(userData));
@@ -38,14 +38,13 @@ export default function LoginScreen() {
       if (pendingRoute) {
         console.log('📩 Found pending route:', pendingRoute);
         
-        // Empty the box so we don't get stuck in a loop
+        // Empty the box so we don't get stuck in a loop later
         await AsyncStorage.removeItem('pendingRoute');
         
-        // 1. Put the Dashboard at the bottom of the stack
+        // Put the Dashboard at the bottom of the stack
         router.replace('/dashboard');
         
-        // 2. Wait exactly half a second for the Dashboard to finish loading, 
-        // then push the Invitation on top of it.
+        // Wait half a second for the Dashboard to mount, then push the Invitation on top
         setTimeout(() => {
           router.push(pendingRoute as any);
         }, 500);

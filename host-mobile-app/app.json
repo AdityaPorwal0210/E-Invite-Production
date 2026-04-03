@@ -22,20 +22,28 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "intentFilters": [  
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "hostapp"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
+      "intentFilters": [
+  {
+    "action": "VIEW",
+    "autoVerify": true,
+    "data": [
+      {
+        "scheme": "https",
+        "host": "your-production-domain.com",
+        "pathPrefix": "/invitation"
+      }
+    ],
+    "category": ["BROWSABLE", "DEFAULT"]
+  },
+  {
+    "action": "VIEW",
+    "data": [
+      {
+        "scheme": "hostapp"
+      }
+    ],
+    "category": ["BROWSABLE", "DEFAULT"]
+  }
       ]
     },
     "web": {
