@@ -556,64 +556,122 @@ const getNotificationCounts = async (req, res) => {
 };
 
 // Paste this near the bottom of the controller file
-const syncPhoneToAccount = async (req, res) => {
+// 1. REQUEST PHONE SYNC (Generates and sends OTP)
+const requestPhoneSync = async (req, res) => {
   try {
-    const userId = req.user.id; // This requires your auth middleware
+    const userId = req.user.id;
     const { phoneNumber } = req.body;
-    
+
     if (!phoneNumber) {
       return res.status(400).json({ message: "Phone number is required" });
     }
 
     const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
 
-    // 1. Find the active user
+    // Check if this phone number is already verified by ANOTHER active user
+    const existingActiveUser = await User.findOne({ 
+      phoneNumber: cleanPhone, 
+      isPhoneVerified: true,
+      _id: { $ne: userId } // Not the current user
+    });
+
+    if (existingActiveUser) {
+      return res.status(400).json({ message: "This phone number is already linked to another account." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to the active user
+    user.phoneOtp = otp;
+    user.phoneOtpExpires = otpExpires;
+    // Temporarily store the number they are trying to verify
+    user.phoneNumber = cleanPhone; 
+    user.isPhoneVerified = false;
+    await user.save();
+
+    // ==========================================
+    // 🚨 REPLACE THIS WITH REAL SMS API LATER 🚨
+    // e.g., await twilioClient.messages.create({ body: `Your OTP is ${otp}`, to: cleanPhone, from: YOUR_TWILIO_NUMBER })
+    console.log(`\n📲 SIMULATED SMS TO ${cleanPhone}: Your InvitoInbox sync code is ${otp}\n`);
+    // ==========================================
+
+    res.status(200).json({ message: "OTP sent to phone number", requiresOTP: true });
+
+  } catch (error) {
+    console.error("Phone Sync Request Error:", error);
+    res.status(500).json({ message: "Error requesting phone sync" });
+  }
+};
+
+
+// 2. VERIFY PHONE SYNC (Checks OTP and merges data)
+const verifyPhoneSync = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({ message: "OTP is required" });
+    }
+
     const activeUser = await User.findById(userId);
     if (!activeUser) return res.status(404).json({ message: "User not found" });
 
-    // 2. Look for an orphaned placeholder with this phone number
+    // Check if OTP matches and is not expired
+    if (activeUser.phoneOtp !== otp || activeUser.phoneOtpExpires < Date.now()) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // OTP IS VALID. Execute the merge protocol.
+    const cleanPhone = activeUser.phoneNumber;
+
+    // Look for an orphaned placeholder with this phone number
     const placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
 
     if (placeholderUser) {
-      // 3. TRANSFER THE INVITES
-      // Use your ReceivedInvitation model to transfer the invites
+      // Transfer the invites
       const ReceivedInvitation = require("../models/ReceivedInvitation");
-      
       await ReceivedInvitation.updateMany(
         { recipient: placeholderUser._id },
         { recipient: activeUser._id }
       );
 
-      // 4. Update the active user's phone number
-      activeUser.phoneNumber = cleanPhone;
-      await activeUser.save();
-
-      // 5. Destroy the empty placeholder
+      // Destroy the empty placeholder
       await placeholderUser.deleteOne();
-
-      return res.status(200).json({ message: "Phone synced and invites transferred!" });
     }
 
-    // If no placeholder exists, just update their profile with the new number
-    activeUser.phoneNumber = cleanPhone;
+    // Clean up OTP fields and mark as verified
+    activeUser.phoneOtp = undefined;
+    activeUser.phoneOtpExpires = undefined;
+    activeUser.isPhoneVerified = true;
     await activeUser.save();
-    res.status(200).json({ message: "Phone number saved to profile." });
+
+    res.status(200).json({ 
+      message: "Phone verified and invites successfully synced!",
+      phoneNumber: cleanPhone
+    });
 
   } catch (error) {
-    console.error("Phone Sync Error:", error);
-    res.status(500).json({ message: "Error syncing phone number" });
+    console.error("Phone Verification Error:", error);
+    res.status(500).json({ message: "Error verifying phone number" });
   }
 };
 module.exports = {
   registerUser,
   loginUser,
-  googleLogin,
   verifyOTP,
+  searchUsers,
+  deleteUserProfile,
+  updateUserProfile,
   forgotPassword,
   resetPassword,
-  searchUsers,
   getNotificationCounts,
-  updateUserProfile,
-  deleteUserProfile,
-  syncPhoneToAccount // <--- YOU MISSING THIS EXACT LINE
+  googleLogin,
+  requestPhoneSync, // <--- MUST BE HERE
+  verifyPhoneSync   // <--- MUST BE HERE
 };
