@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react'; // Added useEffect
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import PhoneSyncCard from '../components/PhoneSyncCard'; // <--- IMPORT THE NEW CARD
 
 interface Event {
   _id: string;
@@ -35,6 +36,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
+  
+  // NEW: State to control visibility of the sync card
+  const [showSync, setShowSync] = useState<boolean>(false);
 
   const fetchEvents = async () => {
     try {
@@ -48,13 +52,16 @@ export default function Dashboard() {
         return;
       }
 
-      // Get current user ID from AsyncStorage
+      // Get current user ID and check verification status
       const userStr = await AsyncStorage.getItem('user');
       let myUserId: string | undefined;
       if (userStr) {
         try {
           const userData = JSON.parse(userStr);
           myUserId = userData._id || userData.id;
+          
+          // NEW: Only show sync card if phone is NOT verified
+          setShowSync(!userData.isPhoneVerified);
         } catch (e) {
           console.log('Failed to parse user data');
         }
@@ -70,10 +77,8 @@ export default function Dashboard() {
         },
       });
 
-      // Handle the response - extract invitations array
       let fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
       
-      // Filter out events the user created when in attending mode
       if (viewMode === 'attending' && myUserId) {
         fetchedEvents = fetchedEvents.filter((event: Event) => {
           const eventOwnerId = event.user || event.host?._id;
@@ -101,6 +106,11 @@ export default function Dashboard() {
     }, [viewMode])
   );
 
+  const handleSyncSuccess = () => {
+    setShowSync(false);
+    fetchEvents(); // Refresh list to show newly merged invitations
+  };
+
   const handleLogout = async () => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('user');
@@ -110,10 +120,9 @@ export default function Dashboard() {
   const renderEventItem = ({ item }: { item: Event }) => (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => router.push(`\/event/${item._id}?mode=${viewMode}`)}
+      onPress={() => router.push(`/event/${item._id}?mode=${viewMode}`)}
       activeOpacity={0.7}
     >
-      {/* Left Column - Text Content */}
       <View style={styles.cardContent}>
         <Text style={styles.cardTitle}>{item.title || 'Untitled Event'}</Text>
         <Text style={styles.cardDate}>
@@ -122,7 +131,6 @@ export default function Dashboard() {
         <Text style={styles.cardLocation}>{item.location || 'Location not set'}</Text>
       </View>
       
-      {/* Right Column - Image Thumbnail */}
       <View style={styles.cardImageContainer}>
         {item.coverImage ? (
           <Image
@@ -155,42 +163,26 @@ export default function Dashboard() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ title: 'My Events', headerShown: false }} />
       
+      {/* Header logic remains same */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Events</Text>
-        
-        {/* The Button Container */}
         <View style={styles.buttonContainer}>
-          
-          {/* Saved Events Button */}
-          <TouchableOpacity 
-            style={styles.savedButton} 
-            onPress={() => router.push('/saved')}
-          >
+          <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
             <Text style={styles.savedButtonText}>📌 Saved</Text>
           </TouchableOpacity>
-
-          {/* The Groups Button */}
-          <TouchableOpacity 
-            style={styles.primaryButton} 
-            onPress={() => router.push('/groups')}
-          >
+          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
             <Text style={styles.primaryButtonText}>Groups</Text>
           </TouchableOpacity>
-
-          {/* Your Existing Logout Button */}
           <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
             <Text style={styles.dangerButtonText}>Logout</Text>
           </TouchableOpacity>
-          
         </View>
       </View>
 
-      {/* Toggle Row - Pill Style */}
       <View style={styles.toggleRow}>
         <TouchableOpacity
           style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
           onPress={() => setViewMode('hosting')}
-          activeOpacity={0.7}
         >
           <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
             Hosting
@@ -199,13 +191,15 @@ export default function Dashboard() {
         <TouchableOpacity
           style={[styles.pillButton, viewMode === 'attending' && styles.pillButtonActive]}
           onPress={() => setViewMode('attending')}
-          activeOpacity={0.7}
         >
           <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
             Attending
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Conditionally render the PhoneSyncCard */}
+      {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
 
       {error ? (
         <View style={styles.centered}>
@@ -233,18 +227,12 @@ export default function Dashboard() {
         />
       )}
       
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/create')}
-        activeOpacity={0.8}
-      >
+      <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
