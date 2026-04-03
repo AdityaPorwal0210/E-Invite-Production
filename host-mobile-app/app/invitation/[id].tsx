@@ -339,45 +339,48 @@ export default function InvitationDetailScreen() {
           <View style={styles.rsvpSection}>
             <Text style={styles.rsvpTitle}>Your Response</Text>
             <View style={styles.rsvpButtons}>
+              {/* Change 'going' to 'accepted' */}
               <TouchableOpacity
                 style={[
                   styles.rsvpButton,
-                  myRsvp === 'going' && styles.rsvpButtonActive
+                  myRsvp === 'accepted' && styles.rsvpButtonActive
                 ]}
-                onPress={() => handleRSVP('going')}
+                onPress={() => handleRSVP('accepted')}
                 activeOpacity={0.8}
               >
                 <Text style={[
                   styles.rsvpButtonText,
-                  myRsvp === 'going' && styles.rsvpButtonTextActive
+                  myRsvp === 'accepted' && styles.rsvpButtonTextActive
                 ]}>Going</Text>
               </TouchableOpacity>
               
+              {/* Change 'maybe' to 'tentative' */}
               <TouchableOpacity
                 style={[
                   styles.rsvpButton,
-                  myRsvp === 'maybe' && styles.rsvpButtonActive
+                  myRsvp === 'tentative' && styles.rsvpButtonActive
                 ]}
-                onPress={() => handleRSVP('maybe')}
+                onPress={() => handleRSVP('tentative')}
                 activeOpacity={0.8}
               >
                 <Text style={[
                   styles.rsvpButtonText,
-                  myRsvp === 'maybe' && styles.rsvpButtonTextActive
+                  myRsvp === 'tentative' && styles.rsvpButtonTextActive
                 ]}>Maybe</Text>
               </TouchableOpacity>
               
+              {/* Change 'not_going' to 'declined' */}
               <TouchableOpacity
                 style={[
                   styles.rsvpButton,
-                  myRsvp === 'not_going' && styles.rsvpButtonActive
+                  myRsvp === 'declined' && styles.rsvpButtonActive
                 ]}
-                onPress={() => handleRSVP('not_going')}
+                onPress={() => handleRSVP('declined')}
                 activeOpacity={0.8}
               >
                 <Text style={[
                   styles.rsvpButtonText,
-                  myRsvp === 'not_going' && styles.rsvpButtonTextActive
+                  myRsvp === 'declined' && styles.rsvpButtonTextActive
                 ]}>Can't Go</Text>
               </TouchableOpacity>
             </View>

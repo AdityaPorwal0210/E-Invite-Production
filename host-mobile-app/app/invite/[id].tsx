@@ -289,7 +289,7 @@ export default function InviteScreen() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const inviteLink = `https://invitoinbox.vercel.app/invite/${id}`;
+      const inviteLink = `https://invitoinnbox.vercel.app/invite/${id}`;
       const messageBody = `You're invited to ${eventDetails?.title || 'my event'}! Click here to RSVP and see the details: ${inviteLink}`;
 
       setInviting(false);

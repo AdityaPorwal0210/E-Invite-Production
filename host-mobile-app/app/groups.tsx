@@ -189,7 +189,7 @@ export default function Groups() {
     if (!selectedGroup) return;
     try {
       await Share.share({
-        message: `Join my group: https://invitoinbox.onrender.com/group/invite/${selectedGroup._id}`,
+        message: `Join my group: https://invitoinnbox.vercel.app/group/invite/${selectedGroup._id}`,
       });
     } catch (error) {
       console.log('Failed to share invite link');
