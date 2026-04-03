@@ -7,12 +7,10 @@ const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 
 // Helper to generate URLs for email templates
-// Helper to generate URLs for email templates
 const getEmailUrls = (invitationId) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const isDevelopment = process.env.NODE_ENV === 'development';
   
-  // Pull the IP from the .env file we just updated
   const expoIP = process.env.EXPO_DEV_IP || '127.0.0.1';
   const expoPort = process.env.EXPO_PORT || '8081';
   
@@ -22,11 +20,9 @@ const getEmailUrls = (invitationId) => {
   console.log('🚨 MEMORY CHECK -> IP:', expoIP, '| PORT:', expoPort);
 
   if (isDevelopment) {
-    // THE BRIDGE: Forces Expo Go to route the link into the running app
     mobileUrl = `exp://${expoIP}:${expoPort}/--/invitation/${invitationId}`;
     console.log('🚨 FINAL LINK ->', mobileUrl);
   } else {
-    // Production App Store build format (for later)
     mobileUrl = `${process.env.MOBILE_APP_URL_SCHEME || 'hostapp'}://invitation/${invitationId}`;
   }
   
@@ -35,7 +31,6 @@ const getEmailUrls = (invitationId) => {
   return { webUrl, mobileUrl, frontendUrl };
 };
 
-// Helper to build email body with both web and mobile links
 // Helper to build email body with both web and mobile links
 const buildInvitationEmailBody = (greeting, invitation, hostName, isUnregistered = false) => {
   const { webUrl, mobileUrl } = getEmailUrls(invitation._id);
@@ -77,7 +72,6 @@ const createInvitation = async (req, res) => {
   try {
     const { title, description, eventDate, location, sharedGroups, invitedUsers, invitedEmails, videoUrl, googleMapsLink } = req.body;
 
-    // Parse sharedGroups if it's a string (from FormData)
     let groupsArray = [];
     if (sharedGroups) {
       if (Array.isArray(sharedGroups)) {
@@ -91,7 +85,6 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    // Parse invitedUsers if it's a string (from FormData)
     let usersArray = [];
     if (invitedUsers) {
       if (Array.isArray(invitedUsers)) {
@@ -105,7 +98,6 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    // Parse invitedEmails (for unregistered users)
     let emailsArray = [];
     if (invitedEmails) {
       if (Array.isArray(invitedEmails)) {
@@ -122,13 +114,10 @@ const createInvitation = async (req, res) => {
     let coverImageUrl = null;
     let attachments = [];
     
-    // THE FIX: Safe File Processing Loop (Web App Compatible)
     if (req.files && req.files.length > 0) {
-      // 1. Isolate the first file for the cover image
       const coverFile = req.files[0];
       let remainingFiles = req.files.slice(1);
 
-      // 2. Upload Cover Image safely
       if (coverFile.mimetype.startsWith('image/')) {
         const uploadResult = await uploadOnCloudinary(coverFile.path);
         coverImageUrl = uploadResult?.url;
@@ -137,11 +126,9 @@ const createInvitation = async (req, res) => {
           fs.unlinkSync(coverFile.path);
         }
       } else {
-        // If the first file isn't an image, put it back in the queue to be an attachment
         remainingFiles = [coverFile, ...remainingFiles];
       }
       
-      // 3. Process Attachments independently
       for (const file of remainingFiles) {
         const uploadResult = await uploadOnCloudinary(file.path);
         if (uploadResult?.url) {
@@ -158,7 +145,6 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    // Handle email invitations - separate registered vs unregistered
     let registeredIds = [];
     let unregisteredEmails = [];
     
@@ -234,14 +220,17 @@ const createInvitation = async (req, res) => {
       const recipientUsers = await User.find({ _id: { $in: recipientIds } }).select('email name');
       
       for (const recipient of recipientUsers) {
-        try {
-          await sendEmail({
-            to: recipient.email,
-            subject: `You're invited: ${invitation.title}`,
-            text: `Hello ${recipient.name || 'Guest'},\n\nYou have been invited to "${invitation.title}" by ${hostName}.\n\nEvent Details:\n- Date: ${new Date(invitation.eventDate).toLocaleDateString()}\n- Location: ${invitation.location}\n\nClick here to view and RSVP: ${frontendUrl}/invitation/${invitation._id}\n\nBest regards,\nThe Event Team`
-          });
-        } catch (emailError) {
-          console.error(`Failed to send email to ${recipient.email}:`, emailError);
+        // Do not send emails to our placeholder phone guests
+        if (recipient.email && !recipient.email.includes('@placeholder.com')) {
+          try {
+            await sendEmail({
+              to: recipient.email,
+              subject: `You're invited: ${invitation.title}`,
+              text: `Hello ${recipient.name || 'Guest'},\n\nYou have been invited to "${invitation.title}" by ${hostName}.\n\nEvent Details:\n- Date: ${new Date(invitation.eventDate).toLocaleDateString()}\n- Location: ${invitation.location}\n\nClick here to view and RSVP: ${frontendUrl}/invitation/${invitation._id}\n\nBest regards,\nThe Event Team`
+            });
+          } catch (emailError) {
+            console.error(`Failed to send email to ${recipient.email}:`, emailError);
+          }
         }
       }
     }
@@ -455,13 +444,12 @@ const updateInvitation = async (req, res) => {
 
     await invitation.save();
 
-    // Send email notifications to guests about the update
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     try {
       const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
       
       for (const guest of guests) {
-        if (guest.recipient && guest.recipient.email) {
+        if (guest.recipient && guest.recipient.email && !guest.recipient.email.includes('@placeholder.com')) {
           try {
             await sendEmail({
               to: guest.recipient.email,
@@ -474,7 +462,6 @@ const updateInvitation = async (req, res) => {
         }
       }
     } catch (notifyError) {
-      // Don't fail the update if email notifications fail
       console.error("Failed to send update notifications:", notifyError);
     }
 
@@ -502,13 +489,12 @@ const deleteInvitation = async (req, res) => {
       return res.status(403).json({ message: "Not authorized to delete this invitation" });
     }
 
-    // Send cancellation email notifications BEFORE deleting records
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     try {
       const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
       
       for (const guest of guests) {
-        if (guest.recipient && guest.recipient.email) {
+        if (guest.recipient && guest.recipient.email && !guest.recipient.email.includes('@placeholder.com')) {
           try {
             await sendEmail({
               to: guest.recipient.email,
@@ -529,7 +515,6 @@ const deleteInvitation = async (req, res) => {
     }
 
     await ReceivedInvitation.deleteMany({ invitation: id });
-
     await invitation.deleteOne();
 
     res.status(200).json({ message: "Invitation deleted successfully" });
@@ -597,15 +582,12 @@ const revokeInvite = async (req, res) => {
       try {
         const mongoose = require('mongoose');
         userIdToRemove = new mongoose.Types.ObjectId(userId);
-      } catch (e) {
-      }
+      } catch (e) {}
     }
     
     if (userIdToRemove) {
       await Invitation.findByIdAndUpdate(id, {
-        $pull: { 
-          invitedUsers: userIdToRemove
-        }
+        $pull: { invitedUsers: userIdToRemove }
       });
       
       await ReceivedInvitation.deleteMany({
@@ -627,8 +609,7 @@ const revokeInvite = async (req, res) => {
         try {
           const mongoose = require('mongoose');
           groupIdToRemove = new mongoose.Types.ObjectId(groupId);
-        } catch (e) {
-        }
+        } catch (e) {}
       }
       
       await Invitation.findByIdAndUpdate(id, {
@@ -662,7 +643,7 @@ const revokeInvite = async (req, res) => {
 const shareInvitationLater = async (req, res) => {
   try {
     const { id } = req.params;
-    const { newGroups, newUsers, newEmails, salutations } = req.body;
+    const { newGroups, newUsers, newEmails, newPhones, salutations } = req.body;
 
     const invitation = await Invitation.findById(id);
 
@@ -691,6 +672,44 @@ const shareInvitationLater = async (req, res) => {
     const rawEmails = [];
     const isObjectId = /^[0-9a-fA-F]{24}$/;
     
+    // NEW LOGIC: Process Phones First and force them into validUserIds
+    if (newPhones) {
+      let phonesArray = [];
+      if (Array.isArray(newPhones)) {
+        phonesArray = newPhones;
+      } else if (typeof newPhones === 'string') {
+        try {
+          phonesArray = JSON.parse(newPhones);
+        } catch (e) {
+          phonesArray = [];
+        }
+      }
+      
+      for (const p of phonesArray) {
+        if (p.phone) {
+          const cleanPhone = p.phone.replace(/[^0-9+]/g, ''); 
+          
+          // CRITICAL FIX: Match your Mongoose schema (phoneNumber)
+          let user = await User.findOne({ phoneNumber: cleanPhone });
+          
+          if (!user) {
+            try {
+              user = await User.create({
+                name: p.name || 'Guest',
+                phoneNumber: cleanPhone,
+                email: `guest_${cleanPhone}_${Date.now()}@placeholder.com`,
+                isRegistered: false
+              });
+            } catch (err) {
+              console.error('Failed to create placeholder for phone:', cleanPhone, err);
+              continue; 
+            }
+          }
+          validUserIds.push(user._id.toString());
+        }
+      }
+    }
+
     if (newUsers) {
       let usersArray = [];
       if (Array.isArray(newUsers)) {
@@ -733,7 +752,6 @@ const shareInvitationLater = async (req, res) => {
 
     const hostUser = await User.findById(req.user.id).select('name');
     const hostName = hostUser?.name || 'Someone';
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     if (groupsArray.length > 0) {
       await Invitation.findByIdAndUpdate(id, {
@@ -748,7 +766,10 @@ const shareInvitationLater = async (req, res) => {
       });
       
       const registeredUsers = await User.find({ _id: { $in: validUserIds } }).select('email name');
-      registeredEmails = registeredUsers.map(u => u.email);
+      
+      registeredEmails = registeredUsers
+        .filter(u => u.email && !u.email.includes('@placeholder.com'))
+        .map(u => u.email);
     }
 
     let unregisteredEmails = [];
@@ -794,21 +815,21 @@ const shareInvitationLater = async (req, res) => {
       }
     });
 
+    let salutationsMap = {};
+    if (salutations) {
+      if (typeof salutations === 'string') {
+        try {
+          salutationsMap = JSON.parse(salutations);
+        } catch (e) {
+          salutationsMap = {};
+        }
+      } else if (typeof salutations === 'object') {
+        salutationsMap = salutations;
+      }
+    }
+
     if (allNewRecipientIds.size > 0) {
       const newRecipientIds = Array.from(allNewRecipientIds);
-      
-      let salutationsMap = {};
-      if (salutations) {
-        if (typeof salutations === 'string') {
-          try {
-            salutationsMap = JSON.parse(salutations);
-          } catch (e) {
-            salutationsMap = {};
-          }
-        } else if (typeof salutations === 'object') {
-          salutationsMap = salutations;
-        }
-      }
       
       await Promise.all(
         newRecipientIds.map(recipientId => {
@@ -829,19 +850,6 @@ const shareInvitationLater = async (req, res) => {
       );
     }
 
-    let salutationsMap = {};
-    if (salutations) {
-      if (typeof salutations === 'string') {
-        try {
-          salutationsMap = JSON.parse(salutations);
-        } catch (e) {
-          salutationsMap = {};
-        }
-      } else if (typeof salutations === 'object') {
-        salutationsMap = salutations;
-      }
-    }
-
     const formatGreeting = (salutation, name) => {
       if (salutation) {
         return `Dear ${salutation} ${name || 'Guest'}`;
@@ -849,7 +857,6 @@ const shareInvitationLater = async (req, res) => {
       return `Hello ${name || 'Guest'}`;
     };
 
-    // Send emails to registered users
     for (const email of registeredEmails) {
       try {
         const user = await User.findOne({ email }).select('name');
@@ -857,7 +864,6 @@ const shareInvitationLater = async (req, res) => {
         const salutation = salutationsMap[userId] || salutationsMap[email] || '';
         const greeting = formatGreeting(salutation, user?.name);
         
-        // Use the new helper function for email body
         const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, false);
         
         await sendEmail({
@@ -870,13 +876,11 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Send emails to unregistered guests
     for (const email of unregisteredEmails) {
       try {
         const salutation = salutationsMap[email] || '';
         const greeting = formatGreeting(salutation, '');
         
-        // Use the new helper function for email body (unregistered = true)
         const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, true);
         
         await sendEmail({
@@ -987,7 +991,7 @@ const getEventGuestList = async (req, res) => {
     }
 
     const guests = await ReceivedInvitation.find({ invitation: id })
-      .populate('recipient', 'name email profileImage')
+      .populate('recipient', 'name email profileImage phoneNumber')
       .sort({ rsvpStatus: 1 });
 
     res.status(200).json({
