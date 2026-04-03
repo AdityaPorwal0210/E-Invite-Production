@@ -29,8 +29,8 @@
     "data": [
       {
         "scheme": "https",
-        "host": "your-production-domain.com",
-        "pathPrefix": "/invitation"
+        "host": "invitoinnbox.vercel.app",
+        "pathPrefix": "/invite"
       }
     ],
     "category": ["BROWSABLE", "DEFAULT"]
