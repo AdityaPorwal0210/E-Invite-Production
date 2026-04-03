@@ -604,4 +604,16 @@ const syncPhoneToAccount = async (req, res) => {
     res.status(500).json({ message: "Error syncing phone number" });
   }
 };
-module.exports = { registerUser, loginUser, verifyOTP, searchUsers, deleteUserProfile, updateUserProfile, forgotPassword, resetPassword, getNotificationCounts, googleLogin };
+module.exports = {
+  registerUser,
+  loginUser,
+  googleLogin,
+  verifyOTP,
+  forgotPassword,
+  resetPassword,
+  searchUsers,
+  getNotificationCounts,
+  updateUserProfile,
+  deleteUserProfile,
+  syncPhoneToAccount // <--- YOU MISSING THIS EXACT LINE
+};
