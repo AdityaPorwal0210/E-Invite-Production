@@ -18,13 +18,14 @@ const {
   removeMember,
   toggleAdminStatus,
   deleteGroup,
-  updateGroup
+  updateGroup,
+  addMembersBulk
 } = require("../controllers/groupController");
 const { protect } = require("../middleware/authMiddleware");
 
 // Public route - no authentication required
 router.get("/:id/public", getGroupInfoPublic);
-
+router.post('/:id/members/bulk', protect, addMembersBulk);
 // All other routes are protected
 router.post("/", protect, createGroup);
 router.get("/", protect, getMyGroups);

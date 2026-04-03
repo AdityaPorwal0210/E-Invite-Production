@@ -9,19 +9,32 @@ export const COLORS = {
   input: '#F1F5F9', // Soft gray for borderless input fields
   danger: '#E11D48', // Rose red
   success: '#059669', // Emerald
+  dangerLight: '#FEE2E2', // <--- ADD THIS LINE
   border: '#E2E8F0',
 };
 
 export const SHADOWS = {
+  small: {
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   card: {
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
 };
-
 export const SPACING = {
   xs: 4,
   sm: 8,

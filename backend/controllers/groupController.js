@@ -616,6 +616,80 @@ const updateGroup = async (req, res) => {
   }
 };
 
+// Add multiple members from phone contacts, creating placeholders if necessary
+const addMembersBulk = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contacts } = req.body; // Expects an array of { name, phoneNumber, email }
+
+    if (!contacts || !Array.isArray(contacts)) {
+      return res.status(400).json({ message: "Provide an array of contacts" });
+    }
+
+    const group = await Group.findById(id);
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    // Check if requester is an admin
+    const isAdmin = group.owner.toString() === req.user.id || 
+                    (group.admins && group.admins.includes(req.user.id));
+    
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Only group admins can add members" });
+    }
+
+    const memberIdsToAdd = [];
+
+    // Process each contact one by one
+    for (const contact of contacts) {
+      let targetUser = null;
+
+      // 1. Try to find by email first
+      if (contact.email) {
+        const cleanEmail = contact.email.toLowerCase().trim();
+        targetUser = await User.findOne({ email: cleanEmail });
+      }
+
+      // 2. Try to find by phone if email fails or doesn't exist
+      if (!targetUser && contact.phoneNumber) {
+        const cleanPhone = contact.phoneNumber.replace(/[^0-9+]/g, '');
+        targetUser = await User.findOne({ phoneNumber: cleanPhone });
+      }
+
+      // 3. Create Placeholder if no user exists at all
+      if (!targetUser) {
+        // We must have at least an email or phone to create a placeholder
+        if (!contact.phoneNumber && !contact.email) continue; 
+
+        targetUser = await User.create({
+          name: contact.name || "Guest",
+          email: contact.email ? contact.email.toLowerCase().trim() : undefined,
+          phoneNumber: contact.phoneNumber ? contact.phoneNumber.replace(/[^0-9+]/g, '') : undefined,
+          isRegistered: false // This flags them as a dummy account
+        });
+      }
+
+      memberIdsToAdd.push(targetUser._id);
+    }
+
+    // Push all the IDs into the group's member array without creating duplicates
+    await Group.findByIdAndUpdate(id, {
+      $addToSet: { members: { $each: memberIdsToAdd } }
+    });
+
+    // Return the updated group so the mobile UI updates instantly
+    const updatedGroup = await Group.findById(id)
+      .populate('owner', 'name email')
+      .populate('members', 'name email phoneNumber profileImage isRegistered')
+      .populate('admins', 'name email');
+
+    res.status(200).json(updatedGroup);
+
+  } catch (error) {
+    console.error("Add Bulk Members Error:", error);
+    res.status(500).json({ message: "Error adding members in bulk" });
+  }
+};
+
 module.exports = {
   createGroup,
   getMyGroups,
@@ -633,5 +707,6 @@ module.exports = {
   removeMember,
   toggleAdminStatus,
   deleteGroup,
-  updateGroup
+  updateGroup,
+  addMembersBulk
 };
