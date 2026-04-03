@@ -370,7 +370,7 @@ const requestPhoneSync = async (req, res) => {
   }
 };
 
-const verifyPhoneAndSync = async (req, res) => {
+const verifyPhoneSync  = async (req, res) => {
   try {
     const { phoneNumber, otp } = req.body;
     const userId = req.user.id;
