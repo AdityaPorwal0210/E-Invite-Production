@@ -685,25 +685,33 @@ const shareInvitationLater = async (req, res) => {
         }
       }
       
+      console.log("📱 Processing newPhones array:", phonesArray.length, "contacts");
+      
       for (const p of phonesArray) {
         if (p.phone) {
           const cleanPhone = p.phone.replace(/[^0-9+]/g, ''); 
           
-          // CRITICAL FIX: Match your Mongoose schema (phoneNumber)
           let user = await User.findOne({ phoneNumber: cleanPhone });
           
           if (!user) {
             try {
+              console.log("👤 Creating placeholder for:", cleanPhone);
+              // CRITICAL FIX: We are adding a dummy password just in case your schema requires it
               user = await User.create({
                 name: p.name || 'Guest',
                 phoneNumber: cleanPhone,
                 email: `guest_${cleanPhone}_${Date.now()}@placeholder.com`,
+                password: 'PlaceholderPassword123!', // Bypass password requirement
                 isRegistered: false
               });
+              console.log("✅ Placeholder created successfully. ID:", user._id);
             } catch (err) {
-              console.error('Failed to create placeholder for phone:', cleanPhone, err);
+              // IF IT FAILS NOW, THIS WILL TELL US EXACTLY WHY
+              console.error('❌ Mongoose Validation Failed for Phone Placeholder:', err.message);
               continue; 
             }
+          } else {
+             console.log("✅ Existing user found for phone:", cleanPhone);
           }
           validUserIds.push(user._id.toString());
         }
