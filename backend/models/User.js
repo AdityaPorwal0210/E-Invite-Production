@@ -23,6 +23,16 @@ const userSchema = new mongoose.Schema({
     default: null,
     sparse: true
   },
+  isPhoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  phoneOtp: {
+    type: String
+  },
+  phoneOtpExpires: {
+    type: Date
+  },
   isVerified: {
     type: Boolean,
     default: false
