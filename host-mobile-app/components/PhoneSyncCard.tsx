@@ -6,19 +6,23 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   ActivityIndicator, 
-  Alert 
+  Alert,
+  Modal
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 
-const API_URL = 'https://invitoinbox.onrender.com/api';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
 interface PhoneSyncCardProps {
-  onSyncSuccess: (newPhoneNumber: string) => void;
+  onSyncSuccess: (newPhoneNumber?: string) => void;
 }
 
 export default function PhoneSyncCard({ onSyncSuccess }: PhoneSyncCardProps) {
+  const [hideBanner, setHideBanner] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+
   const [step, setStep] = useState(1); // 1 = Phone Input, 2 = OTP Input
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -60,7 +64,7 @@ export default function PhoneSyncCard({ onSyncSuccess }: PhoneSyncCardProps) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // 1. Update the local User object in AsyncStorage
+      // Update the local User object
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         const userData = JSON.parse(userStr);
@@ -70,6 +74,7 @@ export default function PhoneSyncCard({ onSyncSuccess }: PhoneSyncCardProps) {
       }
 
       Alert.alert("Success", "Phone verified! Your invitations are now synced.");
+      setShowModal(false);
       onSyncSuccess(response.data.phoneNumber);
     } catch (err: any) {
       Alert.alert("Failed", err.response?.data?.message || "Invalid OTP code.");
@@ -78,87 +83,118 @@ export default function PhoneSyncCard({ onSyncSuccess }: PhoneSyncCardProps) {
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>
-        {step === 1 ? "Missing Invitations?" : "Confirm Your Number"}
-      </Text>
-      <Text style={styles.subtitle}>
-        {step === 1 
-          ? "Link your phone number to see invites sent via SMS." 
-          : `Enter the 6-digit code sent to ${phone}`}
-      </Text>
+  // If the user clicks the X, the banner disappears entirely.
+  if (hideBanner) return null;
 
-      {step === 1 ? (
-        <View style={styles.row}>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 9876543210"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-            placeholderTextColor="#9CA3AF"
-          />
-          <TouchableOpacity style={styles.button} onPress={handleRequestOTP} disabled={loading}>
-            {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Get OTP</Text>}
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.row}>
-          <TextInput
-            style={[styles.input, { letterSpacing: 4, textAlign: 'center' }]}
-            placeholder="000000"
-            keyboardType="number-pad"
-            maxLength={6}
-            value={otp}
-            onChangeText={setOtp}
-            placeholderTextColor="#9CA3AF"
-          />
-          <TouchableOpacity style={styles.button} onPress={handleVerifyOTP} disabled={loading}>
-            {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Verify</Text>}
-          </TouchableOpacity>
-        </View>
-      )}
-      
-      {step === 2 && (
-        <TouchableOpacity onPress={() => setStep(1)} style={{ marginTop: 10 }}>
-          <Text style={{ color: COLORS.primary, fontSize: 12, textAlign: 'center' }}>Change Number</Text>
+  return (
+    <>
+      {/* 1. THE COMPACT NOTIFICATION BANNER */}
+      <View style={styles.banner}>
+        <Text style={styles.bannerText}>Missing invites? Link your phone.</Text>
+        <TouchableOpacity style={styles.bannerBtn} onPress={() => setShowModal(true)}>
+          <Text style={styles.bannerBtnText}>Sync</Text>
         </TouchableOpacity>
-      )}
-    </View>
+        <TouchableOpacity onPress={() => setHideBanner(true)} style={styles.closeBtnContainer}>
+          <Text style={styles.closeBtnText}>✕</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 2. THE MODAL POPUP */}
+      <Modal visible={showModal} animationType="fade" transparent={true}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              {step === 1 ? "Sync Invitations" : "Confirm Number"}
+            </Text>
+            <Text style={styles.modalSub}>
+              {step === 1 
+                ? "Enter your number to claim invites sent via SMS/WhatsApp." 
+                : `Enter the 6-digit code sent to ${phone}`}
+            </Text>
+
+            {step === 1 ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 9876543210"
+                  keyboardType="phone-pad"
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholderTextColor="#9CA3AF"
+                />
+                <View style={styles.row}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowModal(false)}>
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.submitBtn} onPress={handleRequestOTP} disabled={loading}>
+                    {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitBtnText}>Get OTP</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={[styles.input, { letterSpacing: 4, textAlign: 'center' }]}
+                  placeholder="000000"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={otp}
+                  onChangeText={setOtp}
+                  placeholderTextColor="#9CA3AF"
+                />
+                <View style={styles.row}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setStep(1)}>
+                    <Text style={styles.cancelBtnText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.submitBtn} onPress={handleVerifyOTP} disabled={loading}>
+                    {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitBtnText}>Verify</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#F0F4FF', // Light Indigo
-    margin: SPACING.md,
-    padding: SPACING.lg,
-    borderRadius: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-    ...SHADOWS.card,
-  },
-  title: { ...TYPOGRAPHY.body, fontWeight: 'bold', color: '#1E1B4B' },
-  subtitle: { ...TYPOGRAPHY.small, color: '#4338CA', marginBottom: 12, marginTop: 2 },
-  row: { flexDirection: 'row', gap: 10 },
-  input: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
-    ...TYPOGRAPHY.body,
-  },
-  button: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    justifyContent: 'center',
+  // Banner Styles
+  banner: { 
+    flexDirection: 'row', 
+    backgroundColor: COLORS.primary || '#3730A3', 
+    paddingVertical: 12, 
+    paddingHorizontal: 16, 
+    borderRadius: 8, 
+    marginHorizontal: SPACING.screenPadding || 16, 
+    marginBottom: 16, 
     alignItems: 'center',
-    minWidth: 80,
+    ...SHADOWS.card 
   },
-  buttonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  bannerText: { color: '#FFF', flex: 1, fontSize: 13, fontWeight: '500' },
+  bannerBtn: { backgroundColor: '#FFF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, marginRight: 12 },
+  bannerBtnText: { color: COLORS.primary || '#3730A3', fontWeight: 'bold', fontSize: 12 },
+  closeBtnContainer: { padding: 4 },
+  closeBtnText: { color: 'rgba(255,255,255,0.7)', fontSize: 16, fontWeight: 'bold' },
+
+  // Modal Styles
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#FFF', padding: 24, borderRadius: 16, ...SHADOWS.card },
+  modalTitle: { ...TYPOGRAPHY.header, color: '#111827', marginBottom: 8 },
+  modalSub: { ...TYPOGRAPHY.body, color: '#6B7280', marginBottom: 16 },
+  input: { 
+    backgroundColor: '#F3F4F6', 
+    borderRadius: 10, 
+    paddingHorizontal: 16, 
+    height: 50, 
+    fontSize: 16, 
+    color: '#111827',
+    marginBottom: 16 
+  },
+  row: { flexDirection: 'row', gap: 12 },
+  cancelBtn: { flex: 1, padding: 14, alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 10 },
+  cancelBtnText: { color: '#374151', fontWeight: '600', fontSize: 15 },
+  submitBtn: { flex: 1, padding: 14, alignItems: 'center', backgroundColor: COLORS.primary || '#3730A3', borderRadius: 10 },
+  submitBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
 });
