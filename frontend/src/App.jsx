@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthContext } from './context/AuthContext';
 import Login from './components/Login';
@@ -9,7 +9,7 @@ import CreateEventForm from './components/CreateEventForm';
 import Groups from './components/Groups';
 import GroupDetails from './components/GroupDetails';
 import PublicInvite from './components/PublicInvite';
-import PublicGroupJoin from './components/PublicGroupJoin';
+// PublicGroupJoin is bypassed, so we don't even need to import it
 import GroupInviteLanding from './components/GroupInviteLanding';
 import Inbox from './components/Inbox';
 import InvitationDetail from './components/InvitationDetail';
@@ -18,7 +18,7 @@ import Profile from './components/Profile';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import HostGuestList from './components/HostGuestList';
-import InviteBridge from './components/InviteBridge'; // <-- NEW IMPORT
+import InviteBridge from './components/InviteBridge';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -39,28 +39,6 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Smart Group Join Route - redirects logged-in users to group details
-const GroupJoinHandler = () => {
-  const { id } = useParams();
-  const { user, loading } = useContext(AuthContext);
-  
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-xl text-gray-600">Loading...</div>
-      </div>
-    );
-  }
-  
-  // If user is logged in, redirect to group details
-  if (user) {
-    return <Navigate to={`/group/${id}`} replace />;
-  }
-  
-  // If not logged in, show the public join page
-  return <PublicGroupJoin />;
-};
-
 function App() {
   return (
     <>
@@ -72,7 +50,9 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/share/:id" element={<PublicInvite />} />
-      <Route path="/group/join/:id" element={<GroupJoinHandler />} />
+      
+      {/* THE FIX: Both join links now properly route to the working Landing page */}
+      <Route path="/group/join/:id" element={<GroupInviteLanding />} />
       <Route path="/group/invite/:id" element={<GroupInviteLanding />} />
       
       {/* THE NEW BRIDGE ROUTE */}
