@@ -365,45 +365,29 @@ const updateRSVP = async (req, res) => {
   }
 };
 
+// @desc    Get all invitations received by the logged-in user
+// @route   GET /api/invitations/received
 const getReceivedInvitations = async (req, res) => {
   try {
-    const userGroups = await Group.find({ members: req.user.id });
-    const groupIds = userGroups.map(group => group._id);
-    
-    const invitations = await Invitation.find({ 
-      $or: [
-        { sharedGroups: { $in: groupIds } },
-        { invitedUsers: req.user.id }
-      ]
-    })
-    .sort({ createdAt: -1 })
-    .populate('host', 'name email')
-    .populate('sharedGroups', 'name')
-    .populate('invitedUsers', 'name email');
+    const receivedInvites = await ReceivedInvitation.find({ recipient: req.user.id })
+      .populate('invitation', 'title eventDate location coverImage host')
+      .sort({ createdAt: -1 });
 
-    const invitationIds = invitations.map(inv => inv._id);
-    const receivedRecords = await ReceivedInvitation.find({ 
-      invitation: { $in: invitationIds },
-      recipient: req.user.id
-    }).select('invitation isRead');
-
-    const isReadMap = {};
-    receivedRecords.forEach(rec => {
-      isReadMap[rec.invitation.toString()] = rec.isRead;
-    });
-
-    const invitationsWithReadStatus = invitations.map(inv => ({
-      ...inv.toObject(),
-      isRead: isReadMap[inv._id.toString()] || false
+    // Extract the nested 'invitation' data and add rsvpStatus so the mobile app can parse it easily
+    const formattedData = receivedInvites.map(item => ({
+      _id: item.invitation._id,
+      title: item.invitation.title,
+      eventDate: item.invitation.eventDate,
+      location: item.invitation.location,
+      coverImage: item.invitation.coverImage,
+      host: item.invitation.host,
+      rsvpStatus: item.rsvpStatus
     }));
 
-    res.status(200).json({
-      count: invitations.length,
-      invitations: invitationsWithReadStatus
-    });
+    res.status(200).json(formattedData);
   } catch (error) {
-    console.error("Fetch Received Error:", error);
-    res.status(500).json({ message: "Server error while fetching received invitations" });
+    console.error("Error fetching received invitations:", error);
+    res.status(500).json({ message: "Error fetching received invitations" });
   }
 };
 
