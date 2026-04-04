@@ -1,357 +1,203 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
-  Image,
-  StyleSheet,
+  TextInput,
   TouchableOpacity,
-  FlatList,
+  StyleSheet,
+  Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
-import PhoneSyncCard from '../components/PhoneSyncCard'; 
 
-interface Event {
-  _id: string;
-  title?: string;
-  eventDate?: string;
-  location?: string;
-  description?: string;
-  coverImage?: string;
-  user?: string;
-  host?: {
-    _id?: string;
-  };
-}
+const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api/invitations';
-
-export default function Dashboard() {
+export default function LoginScreen() {
   const router = useRouter();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
-  
-  // States for user data and sync
-  const [userData, setUserData] = useState<any>(null); // <--- Added to hold user info
-  const [showSync, setShowSync] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const fetchEvents = async () => {
+  const handleLoginSuccess = async (token: string, userData: any) => {
     try {
-      setLoading(true);
-      setError(null);
-
-      const token = await AsyncStorage.getItem('authToken');
+      await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
       
-      if (!token) {
-        router.replace('/');
-        return;
+      const pendingRoute = await AsyncStorage.getItem('pendingRoute');
+      
+      if (pendingRoute) {
+        await AsyncStorage.removeItem('pendingRoute');
+        router.replace('/dashboard');
+        setTimeout(() => {
+          router.push(pendingRoute as any);
+        }, 500);
+      } else {
+        router.replace('/dashboard'); 
       }
+    } catch (error) {
+      console.error('Login success handler error:', error);
+      router.replace('/dashboard');
+    }
+  };
 
-      // Get current user ID, data, and check verification status
-      const userStr = await AsyncStorage.getItem('user');
-      let myUserId: string | undefined;
-      if (userStr) {
-        try {
-          const parsedUser = JSON.parse(userStr);
-          setUserData(parsedUser); // Save user data to state for the profile icon
-          myUserId = parsedUser._id || parsedUser.id;
-          setShowSync(!parsedUser.isPhoneVerified);
-        } catch (e) {
-          console.log('Failed to parse user data');
-        }
-      }
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter both email and password');
+      return;
+    }
 
-      const endpoint = viewMode === 'hosting' 
-        ? API_URL 
-        : `${API_URL}/received`;
+    setLoading(true);
 
-      const response = await axios.get(endpoint, {
-        headers: { Authorization: `Bearer ${token}` },
+    try {
+      const response = await axios.post(`${baseUrl}/users/login`, {
+        email: email.toLowerCase().trim(),
+        password,
       });
 
-      let fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
+      await handleLoginSuccess(response.data.token, response.data.user);
       
-      if (viewMode === 'attending' && myUserId) {
-        fetchedEvents = fetchedEvents.filter((event: Event) => {
-          const eventOwnerId = event.user || event.host?._id;
-          return eventOwnerId !== myUserId;
-        });
-      }
+      setEmail('');
+      setPassword('');
       
-      setEvents(fetchedEvents);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.message || 'Failed to fetch events');
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Failed to fetch events');
+    } catch (error: any) {
+      let errorMessage = 'Login failed. Please try again.';
+      if (axios.isAxiosError(error)) {
+        errorMessage = error.response?.data?.message || errorMessage;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchEvents();
-    }, [viewMode])
-  );
-
-  const handleSyncSuccess = () => {
-    setShowSync(false);
-    fetchEvents(); 
-  };
-
-  const renderEventItem = ({ item }: { item: Event }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push(`/event/${item._id}?mode=${viewMode}`)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardContent}>
-        <Text style={styles.cardTitle}>{item.title || 'Untitled Event'}</Text>
-        <Text style={styles.cardDate}>
-          {item.eventDate ? new Date(item.eventDate).toLocaleDateString() : 'Date not set'}
-        </Text>
-        <Text style={styles.cardLocation}>{item.location || 'Location not set'}</Text>
-      </View>
-      
-      <View style={styles.cardImageContainer}>
-        {item.coverImage ? (
-          <Image source={{ uri: item.coverImage }} style={styles.cardImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.cardImagePlaceholder}>
-            <Text style={styles.cardImagePlaceholderText}>📅</Text>
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={COLORS.primary || '#3730A3'} />
-          <Text style={styles.loadingText}>Loading your events...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ headerShown: false }} />
-      
-      {/* 1. TOP HEADER (Title + Profile Icon) */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Events</Text>
-        
-        {/* Profile Avatar Button */}
-        <TouchableOpacity 
-          style={styles.profileAvatarBtn} 
-          onPress={() => router.push('/profile')} // <--- Navigates to the Profile screen we just built
-        >
-          {userData?.profileImage ? (
-            <Image source={{ uri: userData.profileImage }} style={styles.profileImage} />
-          ) : (
-            <View style={styles.profileInitials}>
-              <Text style={styles.profileInitialsText}>
-                {userData?.name ? userData.name.charAt(0).toUpperCase() : 'U'}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* 2. QUICK ACTIONS ROW (Saved & Groups have room to breathe) */}
-      <View style={styles.quickActionsContainer}>
-        <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
-          <Text style={styles.savedButtonText}>📌 Saved</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
-          <Text style={styles.primaryButtonText}>👥 Groups</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 3. HOSTING / ATTENDING TOGGLE */}
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
-          onPress={() => setViewMode('hosting')}
-        >
-          <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
-            Hosting
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.pillButton, viewMode === 'attending' && styles.pillButtonActive]}
-          onPress={() => setViewMode('attending')}
-        >
-          <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
-            Attending
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* SYNC CARD NOTIFICATION */}
-      {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
-
-      {/* EVENT LIST OR ERRORS */}
-      {error ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchEvents}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : events.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyText}>
-            {viewMode === 'hosting' ? 'You have not created any events.' : 'You have no upcoming event invitations.'}
-          </Text>
-          {viewMode === 'hosting' && (
-            <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
-          )}
-        </View>
-      ) : (
-        <FlatList
-          data={events}
-          keyExtractor={(item) => item._id}
-          renderItem={renderEventItem}
-          contentContainerStyle={styles.listContent}
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView 
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-        />
-      )}
-      
-      {/* FLOATING ACTION BUTTON */}
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
+        >
+          <View style={styles.headerContainer}>
+            <Text style={styles.title}>Welcome</Text>
+            <Text style={styles.subtitle}>Sign in to manage your events</Text>
+          </View>
+
+          <View style={styles.formContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Email address"
+              placeholderTextColor={COLORS.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor={COLORS.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.forgotPasswordContainer}>
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => router.push('/register')} activeOpacity={0.7}>
+                <Text style={styles.signUpLink}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
+            
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background || '#F9FAFB',
-    paddingHorizontal: SPACING.screenPadding || 16,
-  },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  
-  // NEW HEADER STYLES
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 15,
-  },
-  headerTitle: { ...TYPOGRAPHY.title, fontSize: 28, fontWeight: 'bold', color: '#111827' },
-  
-  profileAvatarBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: '#E0E7FF',
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
+    paddingHorizontal: SPACING.screenPadding,
+    paddingVertical: SPACING.lg,
   },
-  profileImage: { width: '100%', height: '100%' },
-  profileInitials: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  profileInitialsText: { fontSize: 18, fontWeight: 'bold', color: '#4338CA' },
-
-  // NEW QUICK ACTIONS STYLES
-  quickActionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+  headerContainer: { marginBottom: SPACING.xl },
+  title: { ...TYPOGRAPHY.title, fontSize: 32, marginBottom: 8 },
+  subtitle: { ...TYPOGRAPHY.bodyMuted, marginBottom: SPACING.xl },
+  formContainer: {
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    padding: SPACING.lg,
+    ...SHADOWS.card,
   },
-  savedButton: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  savedButtonText: { color: '#D97706', fontWeight: 'bold', fontSize: 14 },
-  primaryButton: {
-    backgroundColor: COLORS.primary || '#3730A3',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  primaryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-
-  // REMOVED dangerButton (Logout) entirely from here.
-
-  loadingText: { marginTop: 12, ...TYPOGRAPHY.body },
-  errorText: { ...TYPOGRAPHY.body, color: COLORS.danger || '#DC2626', textAlign: 'center', marginBottom: 16 },
-  retryButton: { backgroundColor: COLORS.primary || '#3730A3', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 8 },
-  retryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  
-  emptyText: { ...TYPOGRAPHY.header, marginBottom: 8, textAlign: 'center', color: '#374151' },
-  emptySubtext: { ...TYPOGRAPHY.bodyMuted, textAlign: 'center' },
-  
-  listContent: { paddingBottom: 80 }, // Added padding so FAB doesn't cover last item
-  
-  card: {
-    backgroundColor: COLORS.card || '#FFF',
+  input: {
+    backgroundColor: COLORS.background,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: COLORS.text,
+    marginBottom: SPACING.md,
+  },
+  button: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  buttonDisabled: { opacity: 0.7 },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  forgotPasswordContainer: {
+    alignItems: 'center',
+    marginTop: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  forgotPasswordText: { color: COLORS.primary, fontSize: 14, fontWeight: '500' },
+  footer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    ...(SHADOWS.card || { elevation: 2, shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } }),
-  },
-  cardContent: { flex: 1, marginRight: 16 },
-  cardTitle: { ...TYPOGRAPHY.header, marginBottom: 4, fontSize: 18, color: '#111827' },
-  cardDate: { ...TYPOGRAPHY.bodyMuted, color: COLORS.primary || '#3730A3', fontWeight: '600', marginBottom: 4 },
-  cardLocation: { ...TYPOGRAPHY.bodyMuted, color: '#6B7280' },
-  
-  cardImageContainer: { width: 80, height: 80 },
-  cardImage: { width: 80, height: 80, borderRadius: 12 },
-  cardImagePlaceholder: { width: 80, height: 80, borderRadius: 12, backgroundColor: '#E0E7FF', justifyContent: 'center', alignItems: 'center' },
-  cardImagePlaceholderText: { fontSize: 32 },
-  
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.primary || '#3730A3',
     justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    marginTop: SPACING.lg,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
-  fabText: { color: '#FFFFFF', fontSize: 32, fontWeight: '300', marginTop: -2 },
-  
-  toggleRow: { flexDirection: 'row', justifyContent: 'center', marginVertical: 12, backgroundColor: '#E5E7EB', borderRadius: 100, padding: 4 },
-  pillButton: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 100 },
-  pillButtonActive: { backgroundColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  pillButtonText: { ...TYPOGRAPHY.body, color: '#6B7280', fontWeight: '600' },
-  pillButtonTextActive: { color: COLORS.primary || '#3730A3' },
+  footerText: { ...TYPOGRAPHY.body, color: '#6B7280' },
+  signUpLink: { ...TYPOGRAPHY.body, color: COLORS.primary, fontWeight: 'bold' },
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react'; // Added useEffect
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
-import PhoneSyncCard from '../components/PhoneSyncCard'; // <--- IMPORT THE NEW CARD
+import PhoneSyncCard from '../components/PhoneSyncCard'; 
 
 interface Event {
   _id: string;
@@ -28,7 +28,7 @@ interface Event {
   };
 }
 
-const API_URL = 'https://invitoinbox.onrender.com/api/invitations';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api/invitations';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -37,7 +37,8 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
-  // NEW: State to control visibility of the sync card
+  // States for user data and sync
+  const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
 
   const fetchEvents = async () => {
@@ -52,16 +53,15 @@ export default function Dashboard() {
         return;
       }
 
-      // Get current user ID and check verification status
+      // Get current user ID, data, and check verification status
       const userStr = await AsyncStorage.getItem('user');
       let myUserId: string | undefined;
       if (userStr) {
         try {
-          const userData = JSON.parse(userStr);
-          myUserId = userData._id || userData.id;
-          
-          // NEW: Only show sync card if phone is NOT verified
-          setShowSync(!userData.isPhoneVerified);
+          const parsedUser = JSON.parse(userStr);
+          setUserData(parsedUser);
+          myUserId = parsedUser._id || parsedUser.id;
+          setShowSync(!parsedUser.isPhoneVerified);
         } catch (e) {
           console.log('Failed to parse user data');
         }
@@ -72,9 +72,7 @@ export default function Dashboard() {
         : `${API_URL}/received`;
 
       const response = await axios.get(endpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       let fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
@@ -89,6 +87,13 @@ export default function Dashboard() {
       setEvents(fetchedEvents);
     } catch (err) {
       if (axios.isAxiosError(err)) {
+        // === FIX 1: THE ZOMBIE KILL SWITCH ===
+        if (err.response?.status === 401) {
+          console.log("Dead token detected. Forcing logout.");
+          await AsyncStorage.multiRemove(['authToken', 'user']);
+          router.replace('/');
+          return;
+        }
         setError(err.response?.data?.message || 'Failed to fetch events');
       } else if (err instanceof Error) {
         setError(err.message);
@@ -108,13 +113,7 @@ export default function Dashboard() {
 
   const handleSyncSuccess = () => {
     setShowSync(false);
-    fetchEvents(); // Refresh list to show newly merged invitations
-  };
-
-  const handleLogout = async () => {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('user');
-    router.replace('/');
+    fetchEvents(); 
   };
 
   const renderEventItem = ({ item }: { item: Event }) => (
@@ -133,11 +132,7 @@ export default function Dashboard() {
       
       <View style={styles.cardImageContainer}>
         {item.coverImage ? (
-          <Image
-            source={{ uri: item.coverImage }}
-            style={styles.cardImage}
-            resizeMode="cover"
-          />
+          <Image source={{ uri: item.coverImage }} style={styles.cardImage} resizeMode="cover" />
         ) : (
           <View style={styles.cardImagePlaceholder}>
             <Text style={styles.cardImagePlaceholderText}>📅</Text>
@@ -147,280 +142,216 @@ export default function Dashboard() {
     </TouchableOpacity>
   );
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Stack.Screen options={{ title: 'My Events', headerShown: false }} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading your events...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ title: 'My Events', headerShown: false }} />
+      <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Header logic remains same */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>My Events</Text>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
-            <Text style={styles.savedButtonText}>📌 Saved</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
-            <Text style={styles.primaryButtonText}>Groups</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
-            <Text style={styles.dangerButtonText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
-          onPress={() => setViewMode('hosting')}
-        >
-          <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
-            Hosting
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.pillButton, viewMode === 'attending' && styles.pillButtonActive]}
-          onPress={() => setViewMode('attending')}
-        >
-          <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
-            Attending
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Conditionally render the PhoneSyncCard */}
-      {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
-
-      {error ? (
+      {/* === FIX 2: THE UNIFIED RENDER TREE === */}
+      {loading ? (
         <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchEvents}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : events.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyText}>
-            {viewMode === 'hosting' ? 'You have not created any events.' : 'You have no upcoming event invitations.'}
-          </Text>
-          {viewMode === 'hosting' && (
-            <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
-          )}
+          <ActivityIndicator size="large" color={COLORS.primary || '#3730A3'} />
+          <Text style={styles.loadingText}>Loading your events...</Text>
         </View>
       ) : (
-        <FlatList
-          data={events}
-          keyExtractor={(item) => item._id}
-          renderItem={renderEventItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-        />
+        <>
+          {/* 1. TOP HEADER (Title + Profile Icon) */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>My Events</Text>
+            
+            <TouchableOpacity 
+              style={styles.profileAvatarBtn} 
+              onPress={() => router.push('/profile')}
+            >
+              {userData?.profileImage ? (
+                <Image source={{ uri: userData.profileImage }} style={styles.profileImage} />
+              ) : (
+                <View style={styles.profileInitials}>
+                  <Text style={styles.profileInitialsText}>
+                    {userData?.name ? userData.name.charAt(0).toUpperCase() : 'U'}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* 2. QUICK ACTIONS ROW */}
+          <View style={styles.quickActionsContainer}>
+            <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
+              <Text style={styles.savedButtonText}>📌 Saved</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
+              <Text style={styles.primaryButtonText}>👥 Groups</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 3. HOSTING / ATTENDING TOGGLE */}
+          <View style={styles.toggleRow}>
+            <TouchableOpacity
+              style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
+              onPress={() => setViewMode('hosting')}
+            >
+              <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
+                Hosting
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pillButton, viewMode === 'attending' && styles.pillButtonActive]}
+              onPress={() => setViewMode('attending')}
+            >
+              <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
+                Attending
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* SYNC CARD NOTIFICATION */}
+          {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
+
+          {/* EVENT LIST OR ERRORS */}
+          {error ? (
+            <View style={styles.centered}>
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={fetchEvents}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : events.length === 0 ? (
+            <View style={styles.centered}>
+              <Text style={styles.emptyText}>
+                {viewMode === 'hosting' ? 'You have not created any events.' : 'You have no upcoming event invitations.'}
+              </Text>
+              {viewMode === 'hosting' && (
+                <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
+              )}
+            </View>
+          ) : (
+            <FlatList
+              data={events}
+              keyExtractor={(item) => item._id}
+              renderItem={renderEventItem}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+          
+          {/* FLOATING ACTION BUTTON */}
+          <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
+            <Text style={styles.fabText}>+</Text>
+          </TouchableOpacity>
+        </>
       )}
-      
-      <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
-    paddingHorizontal: SPACING.screenPadding,
+    backgroundColor: COLORS.background || '#F9FAFB',
+    paddingHorizontal: SPACING.screenPadding || 16,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: SPACING.lg,
-  },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: SPACING.md,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    paddingVertical: 15,
   },
-  headerTitle: {
-    ...TYPOGRAPHY.title,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
+  headerTitle: { ...TYPOGRAPHY.title, fontSize: 28, fontWeight: 'bold', color: '#111827' },
+  
+  profileAvatarBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#E0E7FF',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: SPACING.sm,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  profileImage: { width: '100%', height: '100%' },
+  profileInitials: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  profileInitialsText: { fontSize: 18, fontWeight: 'bold', color: '#4338CA' },
+
+  quickActionsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
   },
   savedButton: {
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#F59E0B',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  savedButtonText: {
-    color: '#D97706',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
+  savedButtonText: { color: '#D97706', fontWeight: 'bold', fontSize: 14 },
   primaryButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.primary || '#3730A3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  dangerButton: {
-    backgroundColor: COLORS.danger,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: 8,
-  },
-  dangerButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  loadingText: {
-    marginTop: SPACING.sm,
-    ...TYPOGRAPHY.body,
-  },
-  errorText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.danger,
-    textAlign: 'center',
-    marginBottom: SPACING.md,
-  },
-  retryButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm + 4,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  emptyText: {
-    ...TYPOGRAPHY.header,
-    marginBottom: SPACING.sm,
-  },
-  emptySubtext: {
-    ...TYPOGRAPHY.bodyMuted,
-    textAlign: 'center',
-  },
-  listContent: {
-    paddingVertical: SPACING.md,
-  },
+  primaryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
+
+  loadingText: { marginTop: 12, ...TYPOGRAPHY.body },
+  errorText: { ...TYPOGRAPHY.body, color: COLORS.danger || '#DC2626', textAlign: 'center', marginBottom: 16 },
+  retryButton: { backgroundColor: COLORS.primary || '#3730A3', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 8 },
+  retryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
+  
+  emptyText: { ...TYPOGRAPHY.header, marginBottom: 8, textAlign: 'center', color: '#374151' },
+  emptySubtext: { ...TYPOGRAPHY.bodyMuted, textAlign: 'center' },
+  
+  listContent: { paddingBottom: 80 }, 
+  
   card: {
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.card || '#FFF',
     borderRadius: 12,
-    padding: SPACING.md,
-    marginBottom: SPACING.md,
+    padding: 16,
+    marginBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    ...SHADOWS.card,
+    ...(SHADOWS.card || { elevation: 2, shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } }),
   },
-  cardContent: {
-    flex: 1,
-    marginRight: SPACING.md,
-  },
-  cardTitle: {
-    ...TYPOGRAPHY.header,
-    marginBottom: SPACING.xs,
-  },
-  cardDate: {
-    ...TYPOGRAPHY.bodyMuted,
-    color: COLORS.primary,
-    fontWeight: '500',
-    marginBottom: SPACING.xs,
-  },
-  cardLocation: {
-    ...TYPOGRAPHY.bodyMuted,
-    marginBottom: SPACING.xs,
-  },
-  cardImageContainer: {
-    width: 80,
-    height: 80,
-  },
-  cardImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-  },
-  cardImagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    backgroundColor: COLORS.primaryLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cardImagePlaceholderText: {
-    fontSize: 32,
-  },
+  cardContent: { flex: 1, marginRight: 16 },
+  cardTitle: { ...TYPOGRAPHY.header, marginBottom: 4, fontSize: 18, color: '#111827' },
+  cardDate: { ...TYPOGRAPHY.bodyMuted, color: COLORS.primary || '#3730A3', fontWeight: '600', marginBottom: 4 },
+  cardLocation: { ...TYPOGRAPHY.bodyMuted, color: '#6B7280' },
+  
+  cardImageContainer: { width: 80, height: 80 },
+  cardImage: { width: 80, height: 80, borderRadius: 12 },
+  cardImagePlaceholder: { width: 80, height: 80, borderRadius: 12, backgroundColor: '#E0E7FF', justifyContent: 'center', alignItems: 'center' },
+  cardImagePlaceholderText: { fontSize: 32 },
+  
   fab: {
     position: 'absolute',
-    bottom: SPACING.lg,
-    right: SPACING.lg,
+    bottom: 24,
+    right: 24,
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.primary || '#3730A3',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
     elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  fabText: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: '300',
-    marginTop: -2,
-  },
-  // Toggle styles - Pill Style
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginVertical: SPACING.md,
-  },
-  pillButton: {
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.md,
-    backgroundColor: 'transparent',
-    borderRadius: 100,
-    marginHorizontal: SPACING.xs,
-  },
-  pillButtonActive: {
-    backgroundColor: COLORS.primary,
-  },
-  pillButtonText: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.textMuted,
-    fontWeight: '600',
-  },
-  pillButtonTextActive: {
-    color: COLORS.card,
-  },
+  fabText: { color: '#FFFFFF', fontSize: 32, fontWeight: '300', marginTop: -2 },
+  
+  toggleRow: { flexDirection: 'row', justifyContent: 'center', marginVertical: 12, backgroundColor: '#E5E7EB', borderRadius: 100, padding: 4 },
+  pillButton: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 100 },
+  pillButtonActive: { backgroundColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+  pillButtonText: { ...TYPOGRAPHY.body, color: '#6B7280', fontWeight: '600' },
+  pillButtonTextActive: { color: COLORS.primary || '#3730A3' },
 });
