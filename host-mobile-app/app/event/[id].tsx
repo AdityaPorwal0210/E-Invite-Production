@@ -141,7 +141,7 @@ export default function EventDetailsHub() {
               const token = await AsyncStorage.getItem('authToken');
               const res = await axios.post(
                 `${API_URL}/groups/${groupId}/invitations/${id}`,
-                {},
+                {}, 
                 { headers: { Authorization: `Bearer ${token}` } }
               );
               Alert.alert("Success", res.data.message || "Group invited successfully!");
