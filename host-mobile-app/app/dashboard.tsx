@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
-import PhoneSyncCard from '../components/PhoneSyncCard'; 
+import PhoneSyncCard from '../components/PhoneSyncCard';
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications'; // <-- Push Notification Import
 
 interface Event {
   _id: string;
@@ -40,6 +41,35 @@ export default function Dashboard() {
   // States for user data and sync
   const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
+
+  // --- PUSH NOTIFICATION SETUP ---
+  useEffect(() => {
+    const setupPushNotifications = async () => {
+      try {
+        const authToken = await AsyncStorage.getItem('authToken');
+        if (!authToken) return;
+
+        // 1. Ask the physical phone for the token
+        const pushToken = await registerForPushNotificationsAsync();
+        
+        // 2. If the phone gives us a token, send it to the backend
+        if (pushToken) {
+          const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
+          await axios.put(
+            `${baseUrl}/users/push-token`,
+            { pushToken },
+            { headers: { Authorization: `Bearer ${authToken}` } }
+          );
+          console.log("✅ Push token saved to database:", pushToken);
+        }
+      } catch (error) {
+        console.error("❌ Failed to setup push notifications:", error);
+      }
+    };
+
+    setupPushNotifications();
+  }, []);
+  // -------------------------------
 
   const fetchEvents = async () => {
     try {
@@ -87,7 +117,7 @@ export default function Dashboard() {
       setEvents(fetchedEvents);
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        // === FIX 1: THE ZOMBIE KILL SWITCH ===
+        // === THE ZOMBIE KILL SWITCH ===
         if (err.response?.status === 401) {
           console.log("Dead token detected. Forcing logout.");
           await AsyncStorage.multiRemove(['authToken', 'user']);
@@ -146,7 +176,7 @@ export default function Dashboard() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* === FIX 2: THE UNIFIED RENDER TREE === */}
+      {/* === THE UNIFIED RENDER TREE === */}
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={COLORS.primary || '#3730A3'} />

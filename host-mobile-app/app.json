@@ -10,10 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.hostapp"  
+      "bundleIdentifier": "com.invitoinbox.app"  
     },
     "android": {
-      "package": "com.yourname.hostapp",  
+      "package": "com.invitoinbox.app",  
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
