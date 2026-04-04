@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema({
   phoneOtpExpires: {
     type: Date
   },
+  expoPushToken: {
+  type: String,
+  default: ''
+  },
   isVerified: {
     type: Boolean,
     default: false

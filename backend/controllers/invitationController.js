@@ -5,6 +5,50 @@ const ReceivedInvitation = require("../models/ReceivedInvitation");
 const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinary");
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
+const Expo = require('expo-server-sdk').default;
+
+// Initialize Expo SDK
+const expo = new Expo();
+
+// Helper function to send push notification
+const sendPushNotification = async (expoPushToken, title, body, data = {}) => {
+  try {
+    // Validate the token
+    if (!Expo.isExpoPushToken(expoPushToken)) {
+      console.error(`Invalid Expo push token: ${expoPushToken}`);
+      return false;
+    }
+
+    // Construct the message
+    const message = {
+      to: expoPushToken,
+      sound: 'default',
+      title: title,
+      body: body,
+      data: data,
+    };
+
+    // Chunk messages (Expo allows max 100 per chunk)
+    const chunks = expo.chunkPushNotifications([message]);
+
+    // Send each chunk
+    for (const chunk of chunks) {
+      try {
+        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        console.log(`✅ Push notification sent successfully to ${expoPushToken}`);
+        console.log(`📬 Ticket details:`, JSON.stringify(ticketChunk));
+        return true;
+      } catch (error) {
+        console.error(`❌ Error sending push notification to ${expoPushToken}:`, error);
+        return false;
+      }
+    }
+    return true;
+  } catch (error) {
+    console.error(`❌ Push notification error for ${expoPushToken}:`, error);
+    return false;
+  }
+};
 
 // Helper to generate URLs for email templates
 const getEmailUrls = (invitationId) => {
@@ -217,7 +261,7 @@ const createInvitation = async (req, res) => {
         )
       );
       
-      const recipientUsers = await User.find({ _id: { $in: recipientIds } }).select('email name');
+      const recipientUsers = await User.find({ _id: { $in: recipientIds } }).select('email name expoPushToken');
       
       for (const recipient of recipientUsers) {
         // Do not send emails to our placeholder phone guests
@@ -231,6 +275,24 @@ const createInvitation = async (req, res) => {
           } catch (emailError) {
             console.error(`Failed to send email to ${recipient.email}:`, emailError);
           }
+        }
+        
+        // Send push notification if user has an Expo push token
+        if (recipient.expoPushToken) {
+          const notificationTitle = "New Event Invitation!";
+          const notificationBody = `${hostName} has invited you to "${invitation.title}"`;
+          const notificationData = {
+            invitationId: invitation._id.toString(),
+            type: 'invitation',
+            screen: 'invitation',
+          };
+          
+          await sendPushNotification(
+            recipient.expoPushToken,
+            notificationTitle,
+            notificationBody,
+            notificationData
+          );
         }
       }
     }
@@ -752,16 +814,20 @@ const shareInvitationLater = async (req, res) => {
     }
 
     let registeredEmails = [];
+    let usersWithPushTokens = [];
     if (validUserIds.length > 0) {
       await Invitation.findByIdAndUpdate(id, {
         $addToSet: { invitedUsers: { $each: validUserIds } }
       });
       
-      const registeredUsers = await User.find({ _id: { $in: validUserIds } }).select('email name');
+      const registeredUsers = await User.find({ _id: { $in: validUserIds } }).select('email name expoPushToken');
       
       registeredEmails = registeredUsers
         .filter(u => u.email && !u.email.includes('@placeholder.com'))
         .map(u => u.email);
+        
+      // Collect users with push tokens for notification
+      usersWithPushTokens = registeredUsers.filter(u => u.expoPushToken);
     }
 
     let unregisteredEmails = [];
@@ -882,6 +948,28 @@ const shareInvitationLater = async (req, res) => {
         });
       } catch (emailError) {
         console.error(`Failed to send email to ${email}:`, emailError);
+      }
+    }
+
+    // Send push notifications to users with expoPushTokens
+    if (usersWithPushTokens.length > 0) {
+      console.log(`📱 Sending push notifications to ${usersWithPushTokens.length} users`);
+      
+      for (const user of usersWithPushTokens) {
+        const notificationTitle = "New Event Invitation!";
+        const notificationBody = `${hostName} has invited you to "${invitation.title}"`;
+        const notificationData = {
+          invitationId: invitation._id.toString(),
+          type: 'invitation',
+          screen: 'invitation',
+        };
+        
+        await sendPushNotification(
+          user.expoPushToken,
+          notificationTitle,
+          notificationBody,
+          notificationData
+        );
       }
     }
 
