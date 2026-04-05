@@ -417,18 +417,18 @@ const verifyPhoneSync  = async (req, res) => {
 
 const updatePushToken = async (req, res) => {
   try {
-    // The user ID comes from your 'protect' middleware
     const userId = req.user._id; 
+    // The frontend sends it as "pushToken"
     const { pushToken } = req.body;
 
     if (!pushToken) {
       return res.status(400).json({ message: "Push token is required" });
     }
 
-    // Find the user and update their pushToken field in MongoDB
+    // CRITICAL FIX: Map the variable to the exact schema field name "expoPushToken"
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { pushToken: pushToken },
+      { expoPushToken: pushToken }, 
       { new: true }
     );
 

@@ -14,7 +14,7 @@ import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import PhoneSyncCard from '../components/PhoneSyncCard';
-import { registerForPushNotificationsAsync } from '../utils/pushNotifications'; // <-- Push Notification Import
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 
 interface Event {
   _id: string;
@@ -29,7 +29,10 @@ interface Event {
   };
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api/invitations';
+// === THE FIX: PROPER URL CONSTRUCTION ===
+const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
+const API_URL = `${baseUrl}/invitations`;
+// ========================================
 
 export default function Dashboard() {
   const router = useRouter();
@@ -38,23 +41,19 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
-  // States for user data and sync
   const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
 
-  // --- PUSH NOTIFICATION SETUP ---
   useEffect(() => {
     const setupPushNotifications = async () => {
       try {
         const authToken = await AsyncStorage.getItem('authToken');
         if (!authToken) return;
 
-        // 1. Ask the physical phone for the token
         const pushToken = await registerForPushNotificationsAsync();
         
-        // 2. If the phone gives us a token, send it to the backend
         if (pushToken) {
-          const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
+          // Re-using the base url variable so we don't duplicate logic
           await axios.put(
             `${baseUrl}/users/push-token`,
             { pushToken },
@@ -69,7 +68,6 @@ export default function Dashboard() {
 
     setupPushNotifications();
   }, []);
-  // -------------------------------
 
   const fetchEvents = async () => {
     try {
@@ -83,7 +81,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Get current user ID, data, and check verification status
       const userStr = await AsyncStorage.getItem('user');
       let myUserId: string | undefined;
       if (userStr) {
@@ -101,6 +98,8 @@ export default function Dashboard() {
         ? API_URL 
         : `${API_URL}/received`;
 
+      console.log(`👉 FETCHING EVENTS FROM: ${endpoint}`);
+
       const response = await axios.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -117,7 +116,8 @@ export default function Dashboard() {
       setEvents(fetchedEvents);
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        // === THE ZOMBIE KILL SWITCH ===
+        console.log("❌ EVENTS FETCH ERROR:", err.response ? err.response.data : err.message);
+        
         if (err.response?.status === 401) {
           console.log("Dead token detected. Forcing logout.");
           await AsyncStorage.multiRemove(['authToken', 'user']);
@@ -176,7 +176,6 @@ export default function Dashboard() {
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* === THE UNIFIED RENDER TREE === */}
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={COLORS.primary || '#3730A3'} />
@@ -184,7 +183,6 @@ export default function Dashboard() {
         </View>
       ) : (
         <>
-          {/* 1. TOP HEADER (Title + Profile Icon) */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>My Events</Text>
             
@@ -204,7 +202,6 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
 
-          {/* 2. QUICK ACTIONS ROW */}
           <View style={styles.quickActionsContainer}>
             <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
               <Text style={styles.savedButtonText}>📌 Saved</Text>
@@ -214,7 +211,6 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
 
-          {/* 3. HOSTING / ATTENDING TOGGLE */}
           <View style={styles.toggleRow}>
             <TouchableOpacity
               style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
@@ -234,10 +230,8 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
 
-          {/* SYNC CARD NOTIFICATION */}
           {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
 
-          {/* EVENT LIST OR ERRORS */}
           {error ? (
             <View style={styles.centered}>
               <Text style={styles.errorText}>{error}</Text>
@@ -264,7 +258,6 @@ export default function Dashboard() {
             />
           )}
           
-          {/* FLOATING ACTION BUTTON */}
           <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
             <Text style={styles.fabText}>+</Text>
           </TouchableOpacity>
