@@ -12,6 +12,7 @@ const {
   getNotificationCounts, 
   googleLogin,
   requestPhoneSync,
+  updatePushToken,
   verifyPhoneSync // <-- NEW IMPORT
 } = require("../controllers/userController");
 const userController = require('../controllers/userController');
@@ -34,5 +35,7 @@ router.get("/search", protect, searchUsers);
 router.get("/notifications/counts", protect, getNotificationCounts);
 router.put("/profile", protect, updateUserProfile);
 router.delete("/profile", protect, deleteUserProfile);
+
+router.put('/push-token', protect, updatePushToken);
 
 module.exports = router;

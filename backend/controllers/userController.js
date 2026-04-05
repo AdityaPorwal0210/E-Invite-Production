@@ -415,6 +415,30 @@ const verifyPhoneSync  = async (req, res) => {
   }
 };
 
+const updatePushToken = async (req, res) => {
+  try {
+    // The user ID comes from your 'protect' middleware
+    const userId = req.user._id; 
+    const { pushToken } = req.body;
+
+    if (!pushToken) {
+      return res.status(400).json({ message: "Push token is required" });
+    }
+
+    // Find the user and update their pushToken field in MongoDB
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { pushToken: pushToken },
+      { new: true }
+    );
+
+    res.status(200).json({ message: "Push token saved successfully", user: updatedUser });
+  } catch (error) {
+    console.error("Error saving push token:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -427,5 +451,6 @@ module.exports = {
   getNotificationCounts,
   googleLogin,
   requestPhoneSync,
-  verifyPhoneSync
+  verifyPhoneSync,
+  updatePushToken
 };

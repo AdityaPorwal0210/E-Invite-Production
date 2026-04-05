@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "12147841309",
+    "project_id": "invitoinbox-71aa6",
+    "storage_bucket": "invitoinbox-71aa6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:12147841309:android:5e6f3ad24bca378d05a9f4",
+        "android_client_info": {
+          "package_name": "com.invitoinbox.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWdZVy9EyHbUXnk_0LE_E7QW_37HpYQ2g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

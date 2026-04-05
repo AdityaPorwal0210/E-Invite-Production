@@ -2,7 +2,7 @@
   "expo": {
     "name": "host-mobile-app",
     "slug": "host-mobile-app",
-    "scheme": "hostapp", 
+    "scheme": "hostapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,10 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.invitoinbox.app"  
+      "bundleIdentifier": "com.invitoinbox.app"
     },
     "android": {
-      "package": "com.invitoinbox.app",  
+      "package": "com.invitoinbox.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -23,27 +24,33 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "intentFilters": [
-  {
-    "action": "VIEW",
-    "autoVerify": true,
-    "data": [
-      {
-        "scheme": "https",
-        "host": "invitoinnbox.vercel.app",
-        "pathPrefix": "/invite"
-      }
-    ],
-    "category": ["BROWSABLE", "DEFAULT"]
-  },
-  {
-    "action": "VIEW",
-    "data": [
-      {
-        "scheme": "hostapp"
-      }
-    ],
-    "category": ["BROWSABLE", "DEFAULT"]
-  }
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "invitoinnbox.vercel.app",
+              "pathPrefix": "/invite"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "hostapp"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "web": {
@@ -52,6 +59,12 @@
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f5bbc943-de3e-43ce-9fb1-6313fae01100"
+      }
+    }
   }
 }
