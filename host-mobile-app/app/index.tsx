@@ -52,7 +52,7 @@ export default function LoginScreen() {
       Alert.alert('Error', 'Please enter both email and password');
       return;
     }
-
+console.log("👉 ATTEMPTING LOGIN TO:", `${baseUrl}/users/login`);
     setLoading(true);
 
     try {
@@ -73,6 +73,7 @@ export default function LoginScreen() {
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
+      console.log("❌ LOGIN ERROR:", error.message, error.response?.data);
       Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
