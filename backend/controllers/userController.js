@@ -44,10 +44,24 @@ const registerUser = async (req, res) => {
     let user;
     let isRecycled = false;
 
+    // 1. Try to find a placeholder by the email provided
     let placeholderUser = await User.findOne({ email: cleanEmail, isRegistered: false });
 
+    // 2. THE FIX: If no email match, search by phone number using fuzzy matching
     if (!placeholderUser && cleanPhone) {
-      placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
+      // Extract only the raw digits, and grab the last 10 (ignores country codes)
+      const coreDigits = cleanPhone.replace(/\D/g, '').slice(-10);
+      
+      if (coreDigits.length >= 7) { 
+        placeholderUser = await User.findOne({ 
+          // Match any placeholder phone number that ENDS with these core digits
+          phoneNumber: { $regex: coreDigits + '$' }, 
+          isRegistered: false 
+        });
+      } else {
+        // Fallback for extremely short/weird numbers
+        placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
+      }
     }
 
     if (placeholderUser) {

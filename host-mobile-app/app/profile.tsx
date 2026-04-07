@@ -113,6 +113,38 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      "Delete Account",
+      "Are you absolutely sure? This will permanently delete your profile, hosted events, and all your RSVPs. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete My Account", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem('authToken');
+              
+              await axios.delete(`${baseUrl}/users/profile`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+
+              // Clear local storage
+              await AsyncStorage.multiRemove(['authToken', 'user']);
+              
+              Alert.alert('Account Deleted', 'Your account has been permanently deleted.', [
+                { text: 'OK', onPress: () => router.replace('/') }
+              ]);
+            } catch (err) {
+              Alert.alert('Error', 'Could not delete account. Please try again later.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -222,6 +254,13 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {/* DELETE ACCOUNT BUTTON */}
+        {!isEditing && (
+          <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
+            <Text style={styles.deleteBtnText}>Delete Account</Text>
+          </TouchableOpacity>
+        )}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -298,5 +337,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FECACA'
   },
-  logoutBtnText: { color: '#DC2626', fontSize: 16, fontWeight: 'bold' }
+  logoutBtnText: { color: '#DC2626', fontSize: 16, fontWeight: 'bold' },
+
+  deleteBtn: { 
+    marginTop: 12, 
+    padding: 16, 
+    alignItems: 'center', 
+    backgroundColor: '#FEE2E2', 
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FECACA'
+  },
+  deleteBtnText: { color: '#DC2626', fontSize: 16, fontWeight: '600' }
 });
