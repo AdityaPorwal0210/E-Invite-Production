@@ -130,19 +130,34 @@ const createInvitation = async (req, res) => {
     }
 
     // === NEW LOGIC: ADMIN PERMISSION BLOCKADE ===
+    // === NEW LOGIC: ADMIN PERMISSION BLOCKADE ===
     if (groupsArray.length > 0) {
       for (const groupId of groupsArray) {
         const group = await Group.findById(groupId);
+        
         if (!group) {
+          console.log(`❌ [Blockade] Group not found: ${groupId}`);
           return res.status(404).json({ message: `Group not found: ${groupId}` });
         }
 
         if (group.invitePermission === 'admins') {
-          // SAFE CHECK: Fallback for User ID, and fallback for missing admins array
-          const userId = req.user._id || req.user.id;
-          const isAdmin = group.admins && group.admins.some(adminId => adminId.toString() === userId.toString());
+          // 1. Force the requesting user's ID into a strict string format
+          const userIdStr = (req.user._id || req.user.id).toString();
+          
+          console.log(`\n🛡️ [Blockade Debug] Group: ${group.name}`);
+          console.log(`🛡️ [Blockade Debug] Requesting User ID: ${userIdStr}`);
+          console.log(`🛡️ [Blockade Debug] Raw Admins Array:`, group.admins);
+
+          // 2. Ultra-safe iteration over the admins array
+          const isAdmin = group.admins && group.admins.some(admin => {
+            if (!admin) return false; // Skip nulls
+            // Handle both raw ObjectIds and populated Objects safely
+            const adminStr = admin._id ? admin._id.toString() : admin.toString();
+            return adminStr === userIdStr;
+          });
           
           if (!isAdmin) {
+            console.log(`❌ [Blockade Debug] REJECTED. Match not found.`);
             // Clean up files if rejected
             if (req.files && req.files.length > 0) {
               for (const file of req.files) {
@@ -152,10 +167,13 @@ const createInvitation = async (req, res) => {
             return res.status(403).json({ 
               message: `You do not have permission to invite the group: ${group.name}. Only admins can send invites here.` 
             });
+          } else {
+            console.log(`✅ [Blockade Debug] APPROVED. Admin match found.`);
           }
         }
       }
     }
+    // ============================================
     // ============================================
     // ============================================
 
