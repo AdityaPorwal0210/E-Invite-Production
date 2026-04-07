@@ -113,8 +113,13 @@ ${signature}`;
 };
 
 const createInvitation = async (req, res) => {
+  console.log("\n🚀 --- API HIT: /api/invitations (createInvitation) ---");
   try {
+    console.log("📦 req.body keys:", Object.keys(req.body));
     const { title, description, eventDate, location, sharedGroups, invitedUsers, invitedEmails, videoUrl, googleMapsLink } = req.body;
+
+    console.log("👥 Raw sharedGroups data:", sharedGroups);
+    console.log("🧬 Type of sharedGroups:", typeof sharedGroups);
 
     let groupsArray = [];
     if (sharedGroups) {
@@ -128,8 +133,10 @@ const createInvitation = async (req, res) => {
         }
       }
     }
+    
+    console.log("✅ Parsed groupsArray:", groupsArray);
+    console.log("🔒 Entering Blockade Check...");
 
-    // === NEW LOGIC: ADMIN PERMISSION BLOCKADE ===
     // === NEW LOGIC: ADMIN PERMISSION BLOCKADE ===
     if (groupsArray.length > 0) {
       for (const groupId of groupsArray) {
@@ -172,10 +179,12 @@ const createInvitation = async (req, res) => {
           }
         }
       }
+    } else {
+      console.log("⏭️ Skipped blockade (groupsArray is empty)");
     }
     // ============================================
-    // ============================================
-    // ============================================
+
+    console.log("⏳ Processing users and emails...");
 
     let usersArray = [];
     if (invitedUsers) {
@@ -207,6 +216,7 @@ const createInvitation = async (req, res) => {
     let attachments = [];
     
     if (req.files && req.files.length > 0) {
+      console.log(`🖼️ Processing ${req.files.length} uploaded files...`);
       const coverFile = req.files[0];
       let remainingFiles = req.files.slice(1);
 
@@ -250,6 +260,7 @@ const createInvitation = async (req, res) => {
       usersArray = [...usersArray, ...registeredIds];
     }
 
+    console.log("💾 Creating Invitation in Database...");
     const invitation = await Invitation.create({
       user: req.user.id,
       host: req.user.id,
@@ -304,7 +315,7 @@ const createInvitation = async (req, res) => {
                   recipient: recipientId,
                   rsvpStatus: 'tentative'
                 },
-{ upsert: true, returnDocument: 'after' }
+                { upsert: true, returnDocument: 'after' }
               )
         )
       );
@@ -312,7 +323,6 @@ const createInvitation = async (req, res) => {
       const recipientUsers = await User.find({ _id: { $in: recipientIds } }).select('email name expoPushToken');
       
       for (const recipient of recipientUsers) {
-        // Do not send emails to our placeholder phone guests
         if (recipient.email && !recipient.email.includes('@placeholder.com')) {
           try {
             await sendEmail({
@@ -325,7 +335,6 @@ const createInvitation = async (req, res) => {
           }
         }
         
-        // Send push notification if user has an Expo push token
         if (recipient.expoPushToken) {
           const notificationTitle = "New Event Invitation!";
           const notificationBody = `${hostName} has invited you to "${invitation.title}"`;
@@ -357,10 +366,10 @@ const createInvitation = async (req, res) => {
       }
     }
 
+    console.log("✅ Invitation successfully processed and sent.");
     res.status(201).json(invitation);
   } catch (error) {
-    console.error("Controller Error:", error);
-    // Cleanup files if the database crashes
+    console.error("❌ CRITICAL Controller Error:", error);
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
@@ -369,7 +378,6 @@ const createInvitation = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
-
 const getInvitations = async (req, res) => {
   try {
     const invitations = await Invitation.find({ user: req.user.id })
