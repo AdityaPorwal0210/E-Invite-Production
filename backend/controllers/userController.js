@@ -205,7 +205,7 @@ const verifyOTP = async (req, res) => {
           recipient: user._id,
           rsvpStatus: 'tentative'
         },
-{ upsert: true, returnDocument: 'after' }
+        { upsert: true, returnDocument: 'after' }
       );
     }
 
@@ -281,7 +281,7 @@ const updateUserProfile = async (req, res) => {
     if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
     if (profileImage !== undefined) updateData.profileImage = profileImage;
 
-    const user = await User.findByIdAndUpdate(userId, updateData, { new: true }).select('-password');
+const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' }).select('-password');
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Error updating profile" });
@@ -495,7 +495,7 @@ const updatePushToken = async (req, res) => {
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { expoPushToken: pushToken }, 
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     res.status(200).json({ message: "Push token saved successfully", user: updatedUser });
