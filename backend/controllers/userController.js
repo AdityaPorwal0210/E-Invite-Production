@@ -6,7 +6,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const sendEmail = require("../utils/sendEmail");
-
+const { sendPushNotification } = require('../utils/pushHelper');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT Helper Function
@@ -439,6 +439,34 @@ const updatePushToken = async (req, res) => {
   }
 };
 
+const { sendPushNotification } = require('../utils/pushHelper');
+
+// Add this new controller function
+const testPushNotification = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user || !user.expoPushToken) {
+      return res.status(400).json({ message: "No push token found for this user in the database." });
+    }
+
+    // Fire the notification
+    const success = await sendPushNotification(
+      user.expoPushToken,
+      "It Works! 🚀",
+      "Your database successfully talked to your phone."
+    );
+
+    if (success) {
+      res.status(200).json({ message: "Test notification sent successfully." });
+    } else {
+      res.status(500).json({ message: "Failed to send to Expo servers." });
+    }
+  } catch (error) {
+    console.error("Test push error:", error);
+    res.status(500).json({ message: "Server error during test push." });
+  }
+};
 module.exports = {
   registerUser,
   loginUser,
@@ -452,5 +480,6 @@ module.exports = {
   googleLogin,
   requestPhoneSync,
   verifyPhoneSync,
-  updatePushToken
+  updatePushToken,
+  testPushNotification
 };

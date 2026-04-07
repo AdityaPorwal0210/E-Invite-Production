@@ -38,4 +38,5 @@ router.delete("/profile", protect, deleteUserProfile);
 
 router.put('/push-token', protect, updatePushToken);
 
+router.post('/test-push', protect, testPushNotification);
 module.exports = router;
