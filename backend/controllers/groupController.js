@@ -5,7 +5,7 @@ const Invitation = require("../models/Invitation");
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinary");
-
+const { sendPushNotification } = require('../utils/pushHelper');
 // Create a new group
 const createGroup = async (req, res) => {
   try {
@@ -320,7 +320,10 @@ const rejectRequest = async (req, res) => {
 // Send invitation to group members
 const sendInvitationToGroup = async (req, res) => {
   try {
+    console.log("Incoming Groups Data:", req.params.groupId);
+    
     const { groupId, invitationId } = req.params;
+    const userIdStr = (req.user._id || req.user.id).toString();
 
     const group = await Group.findById(groupId);
 
@@ -328,9 +331,28 @@ const sendInvitationToGroup = async (req, res) => {
       return res.status(404).json({ message: "Group not found" });
     }
 
-    // Only owner can send invitations to group
-    if (group.owner.toString() !== req.user.id) {
-      return res.status(403).json({ message: "Only group owner can send invitations" });
+    // Check invitePermission settings
+    if (group.invitePermission === 'admins') {
+      // User must be either owner OR in admins array
+      const isOwner = group.owner.toString() === userIdStr;
+      const isAdmin = group.admins && group.admins.some(admin => 
+        (admin._id ? admin._id.toString() : admin.toString()) === userIdStr
+      );
+      
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({ message: "Only admins can send invitations to this group" });
+      }
+    } else {
+      // Default: everyone can send invites, but check owner for legacy groups
+      if (group.owner.toString() !== userIdStr) {
+        // Check if user is a member at least
+        const isMember = group.members && group.members.some(m => 
+          (m._id ? m._id.toString() : m.toString()) === userIdStr
+        );
+        if (!isMember) {
+          return res.status(403).json({ message: "You are not a member of this group" });
+        }
+      }
     }
 
     const invitation = await Invitation.findById(invitationId);
@@ -339,8 +361,8 @@ const sendInvitationToGroup = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // Create ReceivedInvitation for each member (except owner who already has it)
-    const memberIds = group.members.filter(id => id.toString() !== req.user.id);
+    // Create ReceivedInvitation for each member (except sender)
+    const memberIds = group.members.filter(id => id.toString() !== userIdStr);
     
     const receivedInvitations = await Promise.all(
       memberIds.map(memberId => 
@@ -351,7 +373,7 @@ const sendInvitationToGroup = async (req, res) => {
             recipient: memberId,
             rsvpStatus: 'Pending'
           },
-{ upsert: true, returnDocument: 'after' }
+          { upsert: true, returnDocument: 'after' }
         )
       )
     );
