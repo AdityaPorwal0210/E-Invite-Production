@@ -129,6 +129,35 @@ const createInvitation = async (req, res) => {
       }
     }
 
+    // === NEW LOGIC: ADMIN PERMISSION BLOCKADE ===
+    if (groupsArray.length > 0) {
+      for (const groupId of groupsArray) {
+        const group = await Group.findById(groupId);
+        if (!group) {
+          return res.status(404).json({ message: `Group not found: ${groupId}` });
+        }
+
+        // Check if the group restricts invites to admins only
+        if (group.invitePermission === 'admins') {
+          // Check if the current user is in the admins array
+          const isAdmin = group.admins.some(adminId => adminId.toString() === req.user.id.toString());
+          
+          if (!isAdmin) {
+            // Clean up any uploaded local files before rejecting so the server disk doesn't bloat
+            if (req.files && req.files.length > 0) {
+              for (const file of req.files) {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+              }
+            }
+            return res.status(403).json({ 
+              message: `You do not have permission to invite the group: ${group.name}. Only admins can send invites here.` 
+            });
+          }
+        }
+      }
+    }
+    // ============================================
+
     let usersArray = [];
     if (invitedUsers) {
       if (Array.isArray(invitedUsers)) {
@@ -256,7 +285,7 @@ const createInvitation = async (req, res) => {
                   recipient: recipientId,
                   rsvpStatus: 'tentative'
                 },
-                { upsert: true, new: true }
+{ upsert: true, returnDocument: 'after' }
               )
         )
       );
@@ -312,8 +341,11 @@ const createInvitation = async (req, res) => {
     res.status(201).json(invitation);
   } catch (error) {
     console.error("Controller Error:", error);
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Cleanup files if the database crashes
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      }
     }
     res.status(500).json({ message: "Internal server error" });
   }
@@ -417,7 +449,7 @@ const updateRSVP = async (req, res) => {
     const result = await ReceivedInvitation.findOneAndUpdate(
       { invitation: id, recipient: req.user.id },
       { rsvpStatus: status },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     ).populate('recipient', 'name email');
 
     res.status(200).json(result);
@@ -902,7 +934,7 @@ const shareInvitationLater = async (req, res) => {
                 salutation: salutation
               }
             },
-            { upsert: true, new: true }
+            { upsert: true, returnDocument: 'after' }
           );
         })
       );
@@ -1130,6 +1162,36 @@ const markAsRead = async (req, res) => {
   }
 };
 
+// @desc    Update group invite permissions
+// @route   PUT /api/groups/:id/permissions
+const updateGroupPermissions = async (req, res) => {
+  try {
+    const { invitePermission } = req.body;
+    const groupId = req.params.id;
+
+    if (!['everyone', 'admins'].includes(invitePermission)) {
+      return res.status(400).json({ message: "Invalid permission type" });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    // Verify the person making the request is actually an admin
+    const userId = req.user.id || req.user._id;
+    const isAdmin = group.admins.some(adminId => adminId.toString() === userId.toString());
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Only admins can change group settings" });
+    }
+
+    group.invitePermission = invitePermission;
+    await group.save();
+
+    res.status(200).json({ message: "Permissions updated", group });
+  } catch (error) {
+    console.error("Permission Update Error:", error);
+    res.status(500).json({ message: "Server error updating permissions" });
+  }
+};
 module.exports = { 
   createInvitation, 
   getInvitations,
@@ -1146,5 +1208,6 @@ module.exports = {
   getSavedInvitations,
   getEventGuestList,
   removeGuest,
-  markAsRead
+  markAsRead,
+  updateGroupPermissions
 };

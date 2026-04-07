@@ -44,6 +44,7 @@ interface Group {
     email: string;
   }>;
   joinSetting?: string;
+  invitePermission?: string;
 }
 
 interface PendingContact {
@@ -222,6 +223,21 @@ const handleCopyInviteLink = async () => {
       refreshSelectedGroup();
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to update setting');
+    }
+  };
+
+  const handleInvitePermissionChange = async (newPermission: string) => {
+    if (!selectedGroup) return;
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      await axios.put(
+        `${API_URL}/groups/${selectedGroup._id}/permissions`,
+        { invitePermission: newPermission },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      refreshSelectedGroup();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update invite permission');
     }
   };
   
@@ -465,6 +481,15 @@ const handleCopyInviteLink = async () => {
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.joinSettingButton, selectedGroup?.joinSetting === 'request_to_join' && styles.joinSettingActive]} onPress={() => handleJoinSettingChange('request_to_join')}>
                       <Text style={[styles.joinSettingText, selectedGroup?.joinSetting === 'request_to_join' && styles.joinSettingTextActive]}>Request to Join</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={[styles.smallLabel, { marginTop: SPACING.md }]}>Who can send event invites to this group?</Text>
+                  <View style={styles.joinSettingRow}>
+                    <TouchableOpacity style={[styles.joinSettingButton, selectedGroup?.invitePermission === 'everyone' && styles.joinSettingActive]} onPress={() => handleInvitePermissionChange('everyone')}>
+                      <Text style={[styles.joinSettingText, selectedGroup?.invitePermission === 'everyone' && styles.joinSettingTextActive]}>Everyone</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.joinSettingButton, selectedGroup?.invitePermission === 'admins' && styles.joinSettingActive]} onPress={() => handleInvitePermissionChange('admins')}>
+                      <Text style={[styles.joinSettingText, selectedGroup?.invitePermission === 'admins' && styles.joinSettingTextActive]}>Admins Only</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

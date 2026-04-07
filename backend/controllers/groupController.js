@@ -351,7 +351,7 @@ const sendInvitationToGroup = async (req, res) => {
             recipient: memberId,
             rsvpStatus: 'Pending'
           },
-          { upsert: true, new: true }
+{ upsert: true, returnDocument: 'after' }
         )
       )
     );

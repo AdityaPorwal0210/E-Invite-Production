@@ -529,25 +529,41 @@ export default function EventDetailsHub() {
                 data={myGroups}
                 keyExtractor={(item) => item._id}
                 showsVerticalScrollIndicator={false}
-                renderItem={({ item }) => (
-                  <View style={styles.groupItemCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.groupItemName}>{item.name}</Text>
-                      <Text style={styles.groupItemCount}>{item.members?.length || 0} Members</Text>
+                renderItem={({ item }) => {
+                  // Check if user can invite to this group
+                  const isAdmin = item.owner?._id === currentUserId || 
+                                  item.admins?.some((a: any) => a._id === currentUserId);
+                  const isLocked = item.invitePermission === 'admins' && !isAdmin;
+                  
+                  return (
+                    <View style={[styles.groupItemCard, isLocked && { opacity: 0.5 }]}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Text style={styles.groupItemName}>{item.name}</Text>
+                          {isLocked && (
+                            <View style={{ backgroundColor: '#FEE2E2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 8 }}>
+                              <Text style={{ fontSize: 10, color: '#DC2626', fontWeight: '600' }}>🔒 Admins Only</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.groupItemCount}>{item.members?.length || 0} Members</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.blastButton, (invitingGroup === item._id || isLocked) && { opacity: 0.7 }]}
+                        disabled={invitingGroup === item._id || isLocked}
+                        onPress={() => handleInviteGroup(item._id, item.name)}
+                      >
+                        {invitingGroup === item._id ? (
+                          <ActivityIndicator size="small" color="#FFF" />
+                        ) : isLocked ? (
+                          <Text style={styles.blastButtonText}>Locked</Text>
+                        ) : (
+                          <Text style={styles.blastButtonText}>Blast Invite</Text>
+                        )}
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={[styles.blastButton, invitingGroup === item._id && { opacity: 0.7 }]}
-                      disabled={invitingGroup === item._id}
-                      onPress={() => handleInviteGroup(item._id, item.name)}
-                    >
-                      {invitingGroup === item._id ? (
-                        <ActivityIndicator size="small" color="#FFF" />
-                      ) : (
-                        <Text style={styles.blastButtonText}>Blast Invite</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  );
+                }}
               />
             )}
           </View>

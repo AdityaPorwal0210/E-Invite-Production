@@ -46,6 +46,11 @@ const groupSchema = new mongoose.Schema({
     type: String,
     unique: true,
     sparse: true // Allows null values while maintaining uniqueness
+  },
+  invitePermission: {
+    type: String,
+    enum: ['everyone', 'admins'],
+    default: 'everyone' // Defaults to open so you don't break existing groups
   }
 }, { timestamps: true });
 

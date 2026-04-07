@@ -205,7 +205,7 @@ const verifyOTP = async (req, res) => {
           recipient: user._id,
           rsvpStatus: 'tentative'
         },
-        { upsert: true, new: true }
+{ upsert: true, returnDocument: 'after' }
       );
     }
 
@@ -348,7 +348,7 @@ const googleLogin = async (req, res) => {
     user = await User.findOneAndUpdate(
       { email: cleanEmail },
       { name, password: hashedPassword, profileImage: picture, isRegistered: true, isVerified: true },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     res.status(200).json({ user, token: generateToken(user._id) });
