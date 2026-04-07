@@ -6,8 +6,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
+  AppState,
   ActivityIndicator,
-  Alert, // <-- ADDED THIS FOR THE TEST NOTIFICATION
+  Linking, // <-- Added Linking to handle the settings escape hatch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,6 +18,7 @@ import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import PhoneSyncCard from '../components/PhoneSyncCard';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 import * as Notifications from 'expo-notifications';
+
 interface Event {
   _id: string;
   title?: string;
@@ -40,58 +42,68 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
+  // State for the permission denial banner
+  const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
+  
   const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
+// 1. Extract the logic into a standalone function so it can be called multiple times
+  const checkPermissionsAndGetToken = async () => {
+    try {
+      const authToken = await AsyncStorage.getItem('authToken');
+      if (!authToken) return;
 
-  useEffect(() => {
-    const setupPushNotifications = async () => {
-      try {
-        const authToken = await AsyncStorage.getItem('authToken');
-        if (!authToken) return;
-
-        const pushToken = await registerForPushNotificationsAsync();
-        
-        if (pushToken) {
-          await axios.put(
-            `${baseUrl}/users/push-token`,
-            { pushToken },
-            { headers: { Authorization: `Bearer ${authToken}` } }
-          );
-          console.log("✅ Push token saved to database:", pushToken);
-        }
-      } catch (error) {
-        console.error("❌ Failed to setup push notifications:", error);
+      const pushToken = await registerForPushNotificationsAsync();
+      
+      if (pushToken) {
+        setPushPermissionDenied(false); // Hides banner instantly
+        await axios.put(
+          `${baseUrl}/users/push-token`,
+          { pushToken },
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+      } else {
+        setPushPermissionDenied(true); // Shows banner
       }
-    };
+    } catch (error) {
+      console.error("❌ Failed to setup push notifications:", error);
+    }
+  };
 
-    setupPushNotifications();
+  // 2. Run it ONCE when the dashboard first loads
+  useEffect(() => {
+    checkPermissionsAndGetToken();
   }, []);
 
-  // === FIXED: DEEP LINKING NOTIFICATION LISTENER ===
+  // 3. Listen for the app waking up (returning from Android Settings)
   useEffect(() => {
-    // 1. Assign the listener to a variable called 'subscription'
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        console.log('📱 App returned to foreground. Re-checking permissions...');
+        checkPermissionsAndGetToken();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // DEEP LINKING NOTIFICATION LISTENER
+  useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       console.log("👉 NOTIFICATION TAPPED! Payload grabbed:", data);
 
       if (data && data.invitationId) {
-        // Teleport the user to the event page
-        // Use the expo-router to push the new screen
         router.push(`/event/${data.invitationId}?mode=attending`);
       }
     });
 
-    // 2. The Cleanup: Call .remove() directly on the subscription instance
     return () => {
       subscription.remove();
     };
   }, []);
-  // ===============================================
-  // === NEW FUNCTION: TEST PUSH NOTIFICATION ===
- // === THE DELAYED TEST FUNCTION ===
-  
-  // ============================================
-  // ============================================
 
   const fetchEvents = async () => {
     try {
@@ -226,7 +238,17 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
 
-          
+          {/* THE WARNING BANNER */}
+          {pushPermissionDenied && (
+            <TouchableOpacity 
+              style={styles.warningBanner}
+              onPress={() => Linking.openSettings()}
+            >
+              <Text style={styles.warningText}>
+                ⚠️ Notifications are disabled! Tap here to open Settings and turn them on to receive event invites.
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.quickActionsContainer}>
             <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
@@ -323,6 +345,22 @@ const styles = StyleSheet.create({
   profileImage: { width: '100%', height: '100%' },
   profileInitials: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   profileInitialsText: { fontSize: 18, fontWeight: 'bold', color: '#4338CA' },
+
+  // WARNING BANNER STYLES
+  warningBanner: {
+    backgroundColor: '#FEE2E2',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    marginBottom: 16,
+  },
+  warningText: {
+    color: '#991B1B',
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
 
   quickActionsContainer: {
     flexDirection: 'row',

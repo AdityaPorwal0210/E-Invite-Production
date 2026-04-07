@@ -58,7 +58,8 @@ const registerUser = async (req, res) => {
       placeholderUser.otp = otp;
       placeholderUser.otpExpires = otpExpires;
       placeholderUser.isVerified = false; 
-      placeholderUser.isRegistered = true; 
+      // CRITICAL FIX: Do not set isRegistered to true here. 
+      // Keep it false so they can retry if they fail OTP.
       
       user = await placeholderUser.save();
       isRecycled = true;
@@ -73,7 +74,7 @@ const registerUser = async (req, res) => {
         otp,
         otpExpires,
         isVerified: false,
-        isRegistered: true 
+        isRegistered: false // CRITICAL: Start as false
       });
     }
 
@@ -155,10 +156,11 @@ const verifyOTP = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired OTP" });
     }
 
+    // CRITICAL FIX: Now we officially mark them as registered
     await User.updateOne(
       { _id: user._id },
       { 
-        $set: { isVerified: true },
+        $set: { isVerified: true, isRegistered: true },
         $unset: { otp: 1, otpExpires: 1 } 
       }
     );
@@ -370,7 +372,7 @@ const requestPhoneSync = async (req, res) => {
   }
 };
 
-const verifyPhoneSync  = async (req, res) => {
+const verifyPhoneSync = async (req, res) => {
   try {
     const { phoneNumber, otp } = req.body;
     const userId = req.user.id;
@@ -383,18 +385,40 @@ const verifyPhoneSync  = async (req, res) => {
 
     // 1. Merge Placeholder User
     const placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
+    
     if (placeholderUser) {
+      // A. Transfer individual received invites
       await ReceivedInvitation.updateMany({ recipient: placeholderUser._id }, { recipient: userId });
+
+      // B. CRITICAL FIX: Transfer the IDs inside the host's actual event arrays
+      await Invitation.updateMany(
+        { invitedUsers: placeholderUser._id },
+        { 
+          $addToSet: { invitedUsers: userId },
+          $pull: { invitedUsers: placeholderUser._id }
+        }
+      );
+
+      // C. CRITICAL FIX: Transfer group memberships if they were added directly
+      await Group.updateMany(
+        { members: placeholderUser._id },
+        { 
+          $addToSet: { members: userId },
+          $pull: { members: placeholderUser._id }
+        }
+      );
+
+      // Now it is safe to delete
       await placeholderUser.deleteOne();
     }
 
-    // 2. Merge Invitations sent to this phone number
+    // 2. Merge Invitations sent to this phone number (No placeholder)
     const inviteUpdate = await ReceivedInvitation.updateMany(
       { phoneNumber: cleanPhone, recipient: { $exists: false } },
       { recipient: userId }
     );
 
-    // 3. Merge Groups
+    // 3. Merge Groups (Pending members)
     const groupUpdate = await Group.updateMany(
       { "pendingMembers.phoneNumber": cleanPhone },
       { 
@@ -411,6 +435,7 @@ const verifyPhoneSync  = async (req, res) => {
       groupsJoined: groupUpdate.modifiedCount
     });
   } catch (error) {
+    console.error("Phone Sync Error:", error);
     res.status(500).json({ message: "Sync failed" });
   }
 };

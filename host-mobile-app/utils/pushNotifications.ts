@@ -3,8 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
-// Tells the app how to handle notifications when the app is open
-// Tells the app how to handle notifications when the app is open
+// Tells the app how to handle notifications when the app is OPEN
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
@@ -35,16 +34,24 @@ export async function registerForPushNotificationsAsync() {
       finalStatus = status;
     }
     
+    // If they deny it, we return null to tell the UI to show the red banner
     if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
-      return null;
+      console.log('❌ User denied push notification permissions!');
+      return null; 
     }
     
-    // Get the token
-    const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
-    token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    // Generate the token safely
+    try {
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } catch (error) {
+      console.error('❌ Error getting push token:', error);
+      return null;
+    }
+
   } else {
-    console.log('Must use physical device for Push Notifications');
+    console.log('⚠️ Must use physical device for Push Notifications');
+    return null;
   }
 
   return token;
