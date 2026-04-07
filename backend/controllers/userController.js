@@ -30,6 +30,7 @@ const registerUser = async (req, res) => {
       cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
     }
 
+    // Check if a fully registered user already exists
     const existingActiveUser = await User.findOne({ email: cleanEmail, isRegistered: true });
     if (existingActiveUser) {
       return res.status(400).json({ message: "User already exists with this email" });
@@ -45,25 +46,32 @@ const registerUser = async (req, res) => {
     let isRecycled = false;
 
     // 1. Try to find a placeholder by the email provided
-    let placeholderUser = await User.findOne({ email: cleanEmail, isRegistered: false });
+    let placeholderUser = await User.findOne({ 
+      email: cleanEmail, 
+      isRegistered: { $ne: true } 
+    });
 
-    // 2. THE FIX: If no email match, search by phone number using fuzzy matching
+    // 2. If no email match, search by phone number using fuzzy matching
     if (!placeholderUser && cleanPhone) {
-      // Extract only the raw digits, and grab the last 10 (ignores country codes)
+      // Extract only the raw digits, and grab up to the last 10
       const coreDigits = cleanPhone.replace(/\D/g, '').slice(-10);
       
-      if (coreDigits.length >= 7) { 
+      // STRICT CHECK: Only do fuzzy matching if we have exactly 10 core digits
+      if (coreDigits.length === 10) { 
         placeholderUser = await User.findOne({ 
-          // Match any placeholder phone number that ENDS with these core digits
           phoneNumber: { $regex: coreDigits + '$' }, 
-          isRegistered: false 
+          isRegistered: { $ne: true } 
         });
       } else {
-        // Fallback for extremely short/weird numbers
-        placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
+        // Fallback: If they typed something weird, enforce an exact, strict match
+        placeholderUser = await User.findOne({ 
+          phoneNumber: cleanPhone, 
+          isRegistered: { $ne: true } 
+        });
       }
     }
 
+    // 3. Claim the placeholder if we found one
     if (placeholderUser) {
       placeholderUser.name = name;
       placeholderUser.email = cleanEmail;
@@ -72,13 +80,13 @@ const registerUser = async (req, res) => {
       placeholderUser.otp = otp;
       placeholderUser.otpExpires = otpExpires;
       placeholderUser.isVerified = false; 
-      // CRITICAL FIX: Do not set isRegistered to true here. 
-      // Keep it false so they can retry if they fail OTP.
+      // CRITICAL: Do not set isRegistered to true here. Keep it false until OTP is verified.
       
       user = await placeholderUser.save();
       isRecycled = true;
     }
 
+    // 4. Create a brand new user if no placeholder existed
     if (!isRecycled) {
       user = await User.create({
         name,
@@ -92,6 +100,7 @@ const registerUser = async (req, res) => {
       });
     }
 
+    // 5. Send the email
     try {
       await sendEmail({
         to: cleanEmail,
@@ -386,6 +395,7 @@ const requestPhoneSync = async (req, res) => {
   }
 };
 
+// IDENTITY SYNC LOGIC
 const verifyPhoneSync = async (req, res) => {
   try {
     const { phoneNumber, otp } = req.body;
@@ -397,14 +407,30 @@ const verifyPhoneSync = async (req, res) => {
 
     const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
 
-    // 1. Merge Placeholder User
-    const placeholderUser = await User.findOne({ phoneNumber: cleanPhone, isRegistered: false });
-    
+    // 1. Merge Placeholder User using fuzzy matching
+    const coreDigits = cleanPhone.replace(/\D/g, '').slice(-10);
+    let placeholderUser;
+
+    if (coreDigits.length === 10) {
+      placeholderUser = await User.findOne({ 
+        phoneNumber: { $regex: coreDigits + '$' }, 
+        isRegistered: { $ne: true } 
+      });
+    } else {
+      placeholderUser = await User.findOne({ 
+        phoneNumber: cleanPhone, 
+        isRegistered: { $ne: true } 
+      });
+    }
+
     if (placeholderUser) {
       // A. Transfer individual received invites
-      await ReceivedInvitation.updateMany({ recipient: placeholderUser._id }, { recipient: userId });
+      await ReceivedInvitation.updateMany(
+        { recipient: placeholderUser._id }, 
+        { recipient: userId }
+      );
 
-      // B. CRITICAL FIX: Transfer the IDs inside the host's actual event arrays
+      // B. Transfer the IDs inside the host's actual event arrays
       await Invitation.updateMany(
         { invitedUsers: placeholderUser._id },
         { 
@@ -413,7 +439,7 @@ const verifyPhoneSync = async (req, res) => {
         }
       );
 
-      // C. CRITICAL FIX: Transfer group memberships if they were added directly
+      // C. Transfer group memberships if they were added directly
       await Group.updateMany(
         { members: placeholderUser._id },
         { 
@@ -422,7 +448,7 @@ const verifyPhoneSync = async (req, res) => {
         }
       );
 
-      // Now it is safe to delete
+      // Now it is safe to delete the ghost account
       await placeholderUser.deleteOne();
     }
 
@@ -441,6 +467,7 @@ const verifyPhoneSync = async (req, res) => {
       }
     );
 
+    // 4. Update the active user's profile
     await User.findByIdAndUpdate(userId, { phoneNumber: cleanPhone, isPhoneVerified: true });
 
     res.status(200).json({ 
