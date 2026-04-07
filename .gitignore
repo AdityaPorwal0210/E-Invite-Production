@@ -2,7 +2,7 @@
 node_modules/
 frontend/node_modules/
 backend/node_modules/
-
+invitoinbox-71aa6-firebase-adminsdk-fbsvc-0975335fee.json
 # Environment Variables
 .env
 frontend/.env

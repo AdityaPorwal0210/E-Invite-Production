@@ -68,24 +68,9 @@ export default function Dashboard() {
   }, []);
 
   // === NEW FUNCTION: TEST PUSH NOTIFICATION ===
-  const handleTestNotification = async () => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (!token) return;
-      
-      console.log("👉 FIRING TEST NOTIFICATION...");
-      await axios.post(
-        `${baseUrl}/users/test-push`,
-        {}, // empty body
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      Alert.alert("Success", "Test signal sent to server.");
-    } catch (error: any) {
-      console.log("❌ TEST PUSH ERROR:", error.response?.data || error.message);
-      Alert.alert("Error", error.response?.data?.message || "Failed to send test signal.");
-    }
-  };
+ // === THE DELAYED TEST FUNCTION ===
+  
+  // ============================================
   // ============================================
 
   const fetchEvents = async () => {
@@ -221,14 +206,7 @@ export default function Dashboard() {
             </TouchableOpacity>
           </View>
 
-          {/* === THE TEST NOTIFICATION BUTTON === */}
-          <TouchableOpacity 
-            style={{ backgroundColor: '#DC2626', padding: 15, borderRadius: 8, marginVertical: 10, alignItems: 'center' }} 
-            onPress={handleTestNotification}
-          >
-            <Text style={{ color: 'white', fontWeight: 'bold' }}>FIRE TEST NOTIFICATION</Text>
-          </TouchableOpacity>
-          {/* ==================================== */}
+          
 
           <View style={styles.quickActionsContainer}>
             <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
