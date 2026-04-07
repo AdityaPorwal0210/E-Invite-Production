@@ -16,7 +16,7 @@ import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import PhoneSyncCard from '../components/PhoneSyncCard';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
-
+import * as Notifications from 'expo-notifications';
 interface Event {
   _id: string;
   title?: string;
@@ -67,6 +67,26 @@ export default function Dashboard() {
     setupPushNotifications();
   }, []);
 
+  // === FIXED: DEEP LINKING NOTIFICATION LISTENER ===
+  useEffect(() => {
+    // 1. Assign the listener to a variable called 'subscription'
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      console.log("👉 NOTIFICATION TAPPED! Payload grabbed:", data);
+
+      if (data && data.invitationId) {
+        // Teleport the user to the event page
+        // Use the expo-router to push the new screen
+        router.push(`/event/${data.invitationId}?mode=attending`);
+      }
+    });
+
+    // 2. The Cleanup: Call .remove() directly on the subscription instance
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  // ===============================================
   // === NEW FUNCTION: TEST PUSH NOTIFICATION ===
  // === THE DELAYED TEST FUNCTION ===
   
