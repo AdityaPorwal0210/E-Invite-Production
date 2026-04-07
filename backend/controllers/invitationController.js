@@ -137,13 +137,13 @@ const createInvitation = async (req, res) => {
           return res.status(404).json({ message: `Group not found: ${groupId}` });
         }
 
-        // Check if the group restricts invites to admins only
         if (group.invitePermission === 'admins') {
-          // Check if the current user is in the admins array
-          const isAdmin = group.admins.some(adminId => adminId.toString() === req.user.id.toString());
+          // SAFE CHECK: Fallback for User ID, and fallback for missing admins array
+          const userId = req.user._id || req.user.id;
+          const isAdmin = group.admins && group.admins.some(adminId => adminId.toString() === userId.toString());
           
           if (!isAdmin) {
-            // Clean up any uploaded local files before rejecting so the server disk doesn't bloat
+            // Clean up files if rejected
             if (req.files && req.files.length > 0) {
               for (const file of req.files) {
                 if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
@@ -156,6 +156,7 @@ const createInvitation = async (req, res) => {
         }
       }
     }
+    // ============================================
     // ============================================
 
     let usersArray = [];
