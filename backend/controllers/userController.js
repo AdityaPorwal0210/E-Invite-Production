@@ -439,8 +439,6 @@ const updatePushToken = async (req, res) => {
   }
 };
 
-const { sendPushNotification } = require('../utils/pushHelper');
-
 // Add this new controller function
 const testPushNotification = async (req, res) => {
   try {
