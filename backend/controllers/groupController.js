@@ -690,6 +690,34 @@ const addMembersBulk = async (req, res) => {
   }
 };
 
+const updateGroupPermissions = async (req, res) => {
+  try {
+    const { invitePermission } = req.body;
+    const groupId = req.params.id;
+
+    if (!['everyone', 'admins'].includes(invitePermission)) {
+      return res.status(400).json({ message: "Invalid permission type" });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    // Verify the person making the request is actually an admin
+    const userId = req.user.id || req.user._id;
+    const isAdmin = group.admins.some(adminId => adminId.toString() === userId.toString());
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Only admins can change group settings" });
+    }
+
+    group.invitePermission = invitePermission;
+    await group.save();
+
+    res.status(200).json({ message: "Permissions updated", group });
+  } catch (error) {
+    console.error("Permission Update Error:", error);
+    res.status(500).json({ message: "Server error updating permissions" });
+  }
+};
 module.exports = {
   createGroup,
   getMyGroups,
@@ -708,5 +736,6 @@ module.exports = {
   toggleAdminStatus,
   deleteGroup,
   updateGroup,
-  addMembersBulk
+  addMembersBulk,
+  updateGroupPermissions
 };
