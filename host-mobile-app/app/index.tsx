@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
@@ -29,6 +30,21 @@ export default function LoginScreen() {
     try {
       await AsyncStorage.setItem('authToken', token);
       await AsyncStorage.setItem('user', JSON.stringify(userData));
+      
+      // Register and save push token after successful login
+      const pushToken = await registerForPushNotificationsAsync();
+      if (pushToken) {
+        try {
+          await axios.put(
+            `${baseUrl}/users/push-token`,
+            { expoPushToken: pushToken },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          console.log('✅ Push token saved to server');
+        } catch (tokenError) {
+          console.log('⚠️ Failed to save push token:', tokenError);
+        }
+      }
       
       const pendingRoute = await AsyncStorage.getItem('pendingRoute');
       

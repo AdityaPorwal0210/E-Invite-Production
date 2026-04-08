@@ -55,13 +55,13 @@ export default function Dashboard() {
       const authToken = await AsyncStorage.getItem('authToken');
       if (!authToken) return;
 
-      const pushToken = await registerForPushNotificationsAsync();
+      const expoPushToken = await registerForPushNotificationsAsync();
       
-      if (pushToken) {
+      if (expoPushToken) {
         setPushPermissionDenied(false); // Hides banner instantly
         await axios.put(
           `${baseUrl}/users/push-token`,
-          { pushToken },
+          { expoPushToken },
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
       } else {
@@ -154,7 +154,6 @@ export default function Dashboard() {
             });
           }
           setEvents(eventsToShow);
-          Alert.alert('Offline Mode', 'Showing cached events.');
         } else {
           setError('No internet connection and no cached data available.');
         }

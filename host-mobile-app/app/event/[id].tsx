@@ -5,14 +5,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import io from 'socket.io-client';
+import { io } from 'socket.io-client'; // 🚨 Note: imported with curly braces if default import fails, but standard is without. Using standard default import below.
 
 // IMPORTANT: Ensure this path is correct for your theme file
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 
-// Strip /api from the end to get the base URL for socket connection
-const SOCKET_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api').replace('/api', '');
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
+// Clean base URL for Socket.io (Strips /api)
+const BASE_URL = API_URL.replace('/api', '');
 
 interface Attachment {
   uri: string;
@@ -54,64 +54,64 @@ export default function EventDetailsHub() {
 
   const { width: screenWidth } = Dimensions.get('window');
 
+  // 🧪 HARDWARE HEARTBEAT
+  console.log('🚀 EVENT HUB MOUNTED. ID:', id);
+
   useFocusEffect(
     useCallback(() => {
       checkAuthAndFetch();
     }, [id])
   );
 
-  // WebSocket for real-time RSVP updates (only for hosts)
+  // --- REAL-TIME RSVP WEBSOCKET LISTENER ---
   useEffect(() => {
-    if (!id || !isHost) return;
+    if (!id) return;
 
-    const socket = io(SOCKET_URL, {
+    console.log('🔌 ATTEMPTING CONNECTION TO:', BASE_URL);
+
+    const socket = io(BASE_URL, {
       transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      forceNew: true,
     });
 
     socket.on('connect', () => {
-      console.log('🔌 Socket connected:', socket.id);
+      console.log('✅ SOCKET CONNECTED SUCCESS. ID:', socket.id);
     });
 
-    socket.on('rsvp-updated', async (data: { eventId: string; message: string; rsvpStatus?: string }) => {
-      console.log('📡 RSVP update received:', data);
+    socket.on('connect_error', (err) => {
+      console.log('❌ SOCKET CONNECTION ERROR:', err.message);
+    });
+
+    socket.on('rsvp-updated', (payload: any) => {
+      console.log('🔥 REAL-TIME RSVP RECEIVED:', payload);
       
-      // Only refresh if this update is for the current event
-      if (data.eventId === id) {
-        console.log('🔄 Refreshing guest list silently...');
-        
-        // Silently refresh guest list without showing loading spinner
-        try {
-          const token = await AsyncStorage.getItem('authToken');
-          const headers = { Authorization: `Bearer ${token}` };
-          
-          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
-            headers, timeout: 5000 
-          });
-          setGuests(guestRes.data.guests || []);
-          
-          // Update cache
-          await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
-        } catch (err) {
-          console.log('Silent refresh failed, will retry on next focus');
-        }
+      if (payload.eventId === id) {
+        console.log('🔄 Match found. Refreshing guest list...');
+        silentRefresh();
       }
     });
 
-    socket.on('disconnect', () => {
-      console.log('🔌 Socket disconnected');
-    });
-
-    // Cleanup: disconnect when component unmounts or id/isHost changes
     return () => {
+      console.log('🔌 Cleaning up socket...');
       socket.disconnect();
-      console.log('🔌 Socket cleanup complete');
     };
-  }, [id, isHost]);
+  }, [id]);
 
- const checkAuthAndFetch = async () => {
+  const silentRefresh = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const headers = { Authorization: `Bearer ${token}` };
+      const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
+        headers, timeout: 5000 
+      });
+      setGuests(guestRes.data.guests || []);
+      await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
+    } catch (e) {
+      console.log('Background refresh failed');
+    }
+  };
+
+  const checkAuthAndFetch = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -134,49 +134,38 @@ export default function EventDetailsHub() {
 
       const headers = { Authorization: `Bearer ${token}` };
 
-      // 🚨 THE SHORT-CIRCUIT: Check hardware before networking
+      // 🚨 OFFLINE SHORT-CIRCUIT
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
 
       if (!networkState.isConnected) {
         console.log(`🌐 Device offline. Pulling event ${id} from Vault.`);
-        
         const cachedEventStr = await AsyncStorage.getItem(`cache_event_${id}`);
         const cachedGuestsStr = await AsyncStorage.getItem(`cache_guests_${id}`);
         
         if (cachedEventStr) {
           const eventData = JSON.parse(cachedEventStr);
           setInvitation(eventData);
-          
           const ownerId = eventData.host?._id || eventData.user;
-          const userIsHost = currentId === ownerId;
-          setIsHost(userIsHost);
-          
+          setIsHost(currentId === ownerId);
           if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
           if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
-          if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
+          if (currentId !== ownerId && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
           if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
-          
-          if (userIsHost && cachedGuestsStr) setGuests(JSON.parse(cachedGuestsStr));
-          
-          Alert.alert('Offline Mode', 'Showing cached event details.');
+          if (cachedGuestsStr) setGuests(JSON.parse(cachedGuestsStr));
         } else {
           Alert.alert('Error', 'No internet and no cached data for this event.');
           router.replace('/dashboard');
         }
         setAuthCheckComplete(true);
         setLoading(false);
-        return; // STOP EXECUTION
+        return;
       }
 
-      // 🚨 ONLINE FETCH: With 5-second kill switch
-      const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { 
-        headers, timeout: 5000 
-      });
+      // 🚨 ONLINE FETCH
+      const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { headers, timeout: 5000 });
       const eventData = eventRes.data;
       setInvitation(eventData);
-      
-      // Save fresh event to Vault
       await AsyncStorage.setItem(`cache_event_${id}`, JSON.stringify(eventData));
 
       const ownerId = eventData.host?._id || eventData.user;
@@ -190,17 +179,13 @@ export default function EventDetailsHub() {
 
       if (userIsHost) {
         try {
-          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
-            headers, timeout: 5000 
-          });
+          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
           setGuests(guestRes.data.guests || []);
-          // Save fresh guest list to Vault
           await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
         } catch (guestErr) {
           setGuests([]); 
         }
       }
-
       setAuthCheckComplete(true);
     } catch (err: any) {
       if (err.code === 'ECONNABORTED' || !err.response) {
@@ -243,20 +228,15 @@ export default function EventDetailsHub() {
             try {
               const token = await AsyncStorage.getItem('authToken');
               const targetUrl = `${API_URL}/groups/${groupId}/send-invitation/${id}`;
-              console.log("🚀 API Target URL:", targetUrl);
-              console.log("📦 Payload Groups:", { groupId, eventId: id });
-              console.log("🔑 Token present:", !!token);
               const res = await axios.post(
                 targetUrl,
                 {}, 
                 { headers: { Authorization: `Bearer ${token}` } }
               );
-              console.log("✅ API Response:", res.data);
               Alert.alert("Success", res.data.message || "Group invited successfully!");
               setShowGroupModal(false);
-              checkAuthAndFetch(); // Refresh guest list
+              checkAuthAndFetch(); 
             } catch (err: any) {
-              console.log("❌ RAW FRONTEND ERROR:", err?.response?.data || err.message || err);
               Alert.alert("Error", err.response?.data?.message || "Failed to blast invites");
             } finally {
               setInvitingGroup(null);

@@ -487,6 +487,26 @@ const updateRSVP = async (req, res) => {
       rsvpStatus: status
     });
 
+    // Send push notification to host (CRITICAL: wrapped in try/catch to fail silently)
+    try {
+      const host = await User.findById(invitation.user).select('name expoPushToken');
+      const guestName = result.recipient?.name || 'A guest';
+      const rsvpText = status === 'accepted' ? 'accepted' : status === 'declined' ? 'declined' : 'marked as maybe';
+      
+      if (host?.expoPushToken) {
+        await sendPushNotification(
+          host.expoPushToken,
+          'New RSVP! 🎉',
+          `${guestName} has ${rsvpText} your event "${invitation.title}"`,
+          { eventId: id, type: 'rsvp-update', screen: 'event' }
+        );
+        console.log(`📱 Push notification sent to host ${host.name}`);
+      }
+    } catch (pushError) {
+      // CRITICAL: Fail silently - do not crash the RSVP process
+      console.log('⚠️ Push notification failed silently:', pushError.message);
+    }
+
     res.status(200).json(result);
   } catch (error) {
     console.error("RSVP Error:", error);

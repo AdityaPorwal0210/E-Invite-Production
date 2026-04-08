@@ -143,7 +143,6 @@ const fetchGroups = async () => {
         
         if (cachedGroups) {
           setGroups(cachedGroups);
-          Alert.alert('Offline Mode', 'Showing cached groups.');
         }
         setLoading(false);
         return; // STOP EXECUTION HERE. Do not let Axios fire.
