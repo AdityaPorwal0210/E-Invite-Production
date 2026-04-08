@@ -127,34 +127,44 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     }
   };
 
-  const fetchGroups = async () => {
+const fetchGroups = async () => {
     try {
       const token = await AsyncStorage.getItem('authToken');
       if (!token) return Alert.alert('Error', 'Please log in again');
 
-      const response = await axios.get(`${API_URL}/groups`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      // Cache successful response for offline use
-      await cacheData(CACHE_KEYS.GROUPS, response.data);
-      
-      setGroups(response.data || []);
-    } catch (err: any) {
-      // Check if it's a network error (no response means network issue)
-      if (!err.response) {
-        console.log('🌐 Network error - attempting to load cached data');
-        
-        // Try to load cached data
+      // 🚨 THE SHORT-CIRCUIT: Interrogate the hardware before making the request
+      const NetInfo = require('@react-native-community/netinfo').default;
+      const networkState = await NetInfo.fetch();
+
+      // If offline, abort Axios completely and read the Vault
+      if (!networkState.isConnected) {
+        console.log('🌐 Device is offline. Bypassing network request.');
         const cachedGroups = await getCachedData(CACHE_KEYS.GROUPS);
         
         if (cachedGroups) {
-          console.log('✅ Loaded groups from cache');
           setGroups(cachedGroups);
-          Alert.alert('Offline Mode', 'Showing cached groups. Some data may be outdated.');
-        } else {
-          Alert.alert('Error', 'No internet connection and no cached data available');
+          // Only alert once so it doesn't get annoying
+          Alert.alert('Offline Mode', 'Showing cached groups.');
         }
+        setLoading(false);
+        return; // STOP EXECUTION HERE. Do not let Axios fire.
+      }
+
+      // If online, fire the request with a strict 5-second kill switch
+      const response = await axios.get(`${API_URL}/groups`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000, // Prevents the Java SocketTimeoutException crash
+      });
+      
+      // Save fresh data to the Vault
+      await cacheData(CACHE_KEYS.GROUPS, response.data);
+      setGroups(response.data || []);
+
+    } catch (err: any) {
+      // If the connection drops EXACTLY while the request is in flight
+      if (err.code === 'ECONNABORTED' || !err.response) {
+        const cachedGroups = await getCachedData(CACHE_KEYS.GROUPS);
+        if (cachedGroups) setGroups(cachedGroups);
       } else {
         Alert.alert('Error', err.response?.data?.message || 'Failed to fetch groups');
       }
