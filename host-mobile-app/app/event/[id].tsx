@@ -139,15 +139,21 @@ export default function EventDetailsHub() {
             setInvitingGroup(groupId);
             try {
               const token = await AsyncStorage.getItem('authToken');
+              const targetUrl = `${API_URL}/groups/${groupId}/invitations/${id}`;
+              console.log("🚀 API Target URL:", targetUrl);
+              console.log("📦 Payload Groups:", { groupId, eventId: id });
+              console.log("🔑 Token present:", !!token);
               const res = await axios.post(
-                `${API_URL}/groups/${groupId}/invitations/${id}`,
+                targetUrl,
                 {}, 
                 { headers: { Authorization: `Bearer ${token}` } }
               );
+              console.log("✅ API Response:", res.data);
               Alert.alert("Success", res.data.message || "Group invited successfully!");
               setShowGroupModal(false);
               checkAuthAndFetch(); // Refresh guest list
             } catch (err: any) {
+              console.log("❌ RAW FRONTEND ERROR:", err?.response?.data || err.message || err);
               Alert.alert("Error", err.response?.data?.message || "Failed to blast invites");
             } finally {
               setInvitingGroup(null);
