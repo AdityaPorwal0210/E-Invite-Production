@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import { cacheData, getCachedData, CACHE_KEYS } from '../utils/cache';
+import useNetworkStatus from '../hooks/useNetworkStatus';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
@@ -72,18 +74,26 @@ export default function Groups() {
   // Mode 1: Search Existing
   const [userSearch, setUserSearch] = useState<string>('');
   const [userResults, setUserResults] = useState<Array<{_id: string; name: string; email: string}>>([]);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
+const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mode 2: Bulk Manual Add
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [pendingQueue, setPendingQueue] = useState<PendingContact[]>([]);
   const [submittingBulk, setSubmittingBulk] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     fetchGroups();
     fetchCurrentUser();
+  }, []);
+
+  // Network status listener
+  useEffect(() => {
+    const unsubscribe = require('@react-native-community/netinfo').default.addEventListener((state: any) => {
+      setIsOffline(!state.isConnected);
+    });
+    return () => unsubscribe();
   }, []);
   
   useEffect(() => {
@@ -125,9 +135,29 @@ export default function Groups() {
       const response = await axios.get(`${API_URL}/groups`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      // Cache successful response for offline use
+      await cacheData(CACHE_KEYS.GROUPS, response.data);
+      
       setGroups(response.data || []);
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to fetch groups');
+      // Check if it's a network error (no response means network issue)
+      if (!err.response) {
+        console.log('🌐 Network error - attempting to load cached data');
+        
+        // Try to load cached data
+        const cachedGroups = await getCachedData(CACHE_KEYS.GROUPS);
+        
+        if (cachedGroups) {
+          console.log('✅ Loaded groups from cache');
+          setGroups(cachedGroups);
+          Alert.alert('Offline Mode', 'Showing cached groups. Some data may be outdated.');
+        } else {
+          Alert.alert('Error', 'No internet connection and no cached data available');
+        }
+      } else {
+        Alert.alert('Error', err.response?.data?.message || 'Failed to fetch groups');
+      }
     } finally {
       setLoading(false);
     }

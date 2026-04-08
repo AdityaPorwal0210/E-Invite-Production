@@ -8,7 +8,8 @@ import {
   FlatList,
   AppState,
   ActivityIndicator,
-  Linking, // <-- Added Linking to handle the settings escape hatch
+  Linking,
+  Alert, // <-- Added Alert for offline mode notifications
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,6 +19,7 @@ import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import PhoneSyncCard from '../components/PhoneSyncCard';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 import * as Notifications from 'expo-notifications';
+import { cacheData, getCachedData, CACHE_KEYS } from '../utils/cache';
 
 interface Event {
   _id: string;
@@ -134,6 +136,11 @@ export default function Dashboard() {
         ? API_URL 
         : `${API_URL}/received`;
 
+      // Determine cache key based on view mode
+      const cacheKey = viewMode === 'hosting' 
+        ? CACHE_KEYS.INVITATIONS 
+        : CACHE_KEYS.INVITATIONS_RECEIVED;
+
       console.log(`👉 FETCHING EVENTS FROM: ${endpoint}`);
 
       const response = await axios.get(endpoint, {
@@ -149,6 +156,9 @@ export default function Dashboard() {
         });
       }
       
+      // Cache successful response for offline use
+      await cacheData(cacheKey, fetchedEvents);
+      
       setEvents(fetchedEvents);
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -160,7 +170,50 @@ export default function Dashboard() {
           router.replace('/');
           return;
         }
-        setError(err.response?.data?.message || 'Failed to fetch events');
+        
+        // Check if it's a network error (no response means network issue)
+        if (!err.response) {
+          console.log('🌐 Network error - attempting to load cached data');
+          
+          // Determine cache key based on view mode
+          const cacheKey = viewMode === 'hosting' 
+            ? CACHE_KEYS.INVITATIONS 
+            : CACHE_KEYS.INVITATIONS_RECEIVED;
+          
+          // Try to load cached data
+          const cachedEvents = await getCachedData(cacheKey);
+          
+          if (cachedEvents) {
+            console.log('✅ Loaded events from cache');
+            
+            // Apply the same filtering for attending view mode
+            const userStr = await AsyncStorage.getItem('user');
+            let myUserId: string | undefined;
+            if (userStr) {
+              try {
+                const parsedUser = JSON.parse(userStr);
+                myUserId = parsedUser._id || parsedUser.id;
+              } catch (e) {
+                console.log('Failed to parse user data');
+              }
+            }
+            
+            let eventsToShow = cachedEvents;
+            if (viewMode === 'attending' && myUserId) {
+              eventsToShow = cachedEvents.filter((event: Event) => {
+                const eventOwnerId = event.user || event.host?._id;
+                return eventOwnerId !== myUserId;
+              });
+            }
+            
+            setEvents(eventsToShow);
+            Alert.alert('Offline Mode', 'Showing cached events. Some data may be outdated.');
+          } else {
+            setError('No internet connection and no cached data available');
+          }
+        } else {
+          setError(err.response?.data?.message || 'Failed to fetch events');
+        }
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
