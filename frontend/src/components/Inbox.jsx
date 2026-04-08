@@ -12,10 +12,14 @@ const Inbox = () => {
   const { user, fetchNotificationCounts } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const fetchReceivedInvitations = async () => {
+ const fetchReceivedInvitations = async () => {
     try {
       const response = await api.get('/invitations/received');
-      setInvitations(response.data.invitations || []);
+      
+      // Safely extract the array no matter how the backend formats it
+      const fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
+      
+      setInvitations(Array.isArray(fetchedEvents) ? fetchedEvents : []);
       setLoading(false);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch invitations');
