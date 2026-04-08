@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import PhoneSyncBanner from './PhoneSyncBanner'; // <-- IMPORT ADDED HERE
-
+import EventCardSkeleton from '../components/EventCardSkeleton';
 const Dashboard = () => {
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,13 +71,15 @@ const Dashboard = () => {
 
   const displayedEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-xl text-gray-600">Loading...</div>
-      </div>
-    );
-  }
+if (loading) {
+  return (
+    <View style={{ flex: 1, backgroundColor: COLORS.background, padding: SPACING.screenPadding }}>
+      <EventCardSkeleton />
+      <EventCardSkeleton />
+      <EventCardSkeleton />
+    </View>
+  );
+}
 
   if (error) {
     return (
