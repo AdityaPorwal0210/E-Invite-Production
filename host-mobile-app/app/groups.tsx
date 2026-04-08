@@ -132,7 +132,7 @@ const fetchGroups = async () => {
       const token = await AsyncStorage.getItem('authToken');
       if (!token) return Alert.alert('Error', 'Please log in again');
 
-      // 🚨 THE SHORT-CIRCUIT: Interrogate the hardware before making the request
+      // THE SHORT-CIRCUIT: Check hardware before making the request
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
 
@@ -143,7 +143,6 @@ const fetchGroups = async () => {
         
         if (cachedGroups) {
           setGroups(cachedGroups);
-          // Only alert once so it doesn't get annoying
           Alert.alert('Offline Mode', 'Showing cached groups.');
         }
         setLoading(false);
@@ -153,7 +152,7 @@ const fetchGroups = async () => {
       // If online, fire the request with a strict 5-second kill switch
       const response = await axios.get(`${API_URL}/groups`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 5000, // Prevents the Java SocketTimeoutException crash
+        timeout: 5000, 
       });
       
       // Save fresh data to the Vault
@@ -161,7 +160,6 @@ const fetchGroups = async () => {
       setGroups(response.data || []);
 
     } catch (err: any) {
-      // If the connection drops EXACTLY while the request is in flight
       if (err.code === 'ECONNABORTED' || !err.response) {
         const cachedGroups = await getCachedData(CACHE_KEYS.GROUPS);
         if (cachedGroups) setGroups(cachedGroups);

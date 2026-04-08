@@ -479,6 +479,14 @@ const updateRSVP = async (req, res) => {
       { upsert: true, returnDocument: 'after' }
     ).populate('recipient', 'name email');
 
+    // Broadcast RSVP update via Socket.io
+    const io = req.app.get('io');
+    io.emit('rsvp-updated', { 
+      eventId: id, 
+      message: 'New RSVP received',
+      rsvpStatus: status
+    });
+
     res.status(200).json(result);
   } catch (error) {
     console.error("RSVP Error:", error);

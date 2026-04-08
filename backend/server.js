@@ -2,6 +2,8 @@ require('dotenv').config();
 const { errorHandler } = require('./middleware/error.middleware');
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 
 // 1. Import Routes
@@ -52,9 +54,33 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 4. Dynamic Port Assignment
+// 4. Socket.io Setup
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: [
+      'http://localhost:5173',
+      'https://invitoinnbox.vercel.app'
+    ],
+    credentials: true
+  }
+});
+
+// Make io available to controllers via app.set('io', io)
+app.set('io', io);
+
+// Socket.io connection listener
+io.on('connection', (socket) => {
+  console.log('🔌 A user connected:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('🔌 A user disconnected:', socket.id);
+  });
+});
+
+// 5. Dynamic Port Assignment
 const PORT = process.env.PORT || 5005;
 app.use(errorHandler);
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
