@@ -1,14 +1,17 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import io from 'socket.io-client';
 
 // IMPORTANT: Ensure this path is correct for your theme file
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 
+// Strip /api from the end to get the base URL for socket connection
+const SOCKET_URL = (process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api').replace('/api', '');
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
 interface Attachment {
@@ -57,7 +60,58 @@ export default function EventDetailsHub() {
     }, [id])
   );
 
-  const checkAuthAndFetch = async () => {
+  // WebSocket for real-time RSVP updates (only for hosts)
+  useEffect(() => {
+    if (!id || !isHost) return;
+
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    socket.on('connect', () => {
+      console.log('🔌 Socket connected:', socket.id);
+    });
+
+    socket.on('rsvp-updated', async (data: { eventId: string; message: string; rsvpStatus?: string }) => {
+      console.log('📡 RSVP update received:', data);
+      
+      // Only refresh if this update is for the current event
+      if (data.eventId === id) {
+        console.log('🔄 Refreshing guest list silently...');
+        
+        // Silently refresh guest list without showing loading spinner
+        try {
+          const token = await AsyncStorage.getItem('authToken');
+          const headers = { Authorization: `Bearer ${token}` };
+          
+          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
+            headers, timeout: 5000 
+          });
+          setGuests(guestRes.data.guests || []);
+          
+          // Update cache
+          await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
+        } catch (err) {
+          console.log('Silent refresh failed, will retry on next focus');
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('🔌 Socket disconnected');
+    });
+
+    // Cleanup: disconnect when component unmounts or id/isHost changes
+    return () => {
+      socket.disconnect();
+      console.log('🔌 Socket cleanup complete');
+    };
+  }, [id, isHost]);
+
+ const checkAuthAndFetch = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -80,9 +134,50 @@ export default function EventDetailsHub() {
 
       const headers = { Authorization: `Bearer ${token}` };
 
-      const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { headers });
+      // 🚨 THE SHORT-CIRCUIT: Check hardware before networking
+      const NetInfo = require('@react-native-community/netinfo').default;
+      const networkState = await NetInfo.fetch();
+
+      if (!networkState.isConnected) {
+        console.log(`🌐 Device offline. Pulling event ${id} from Vault.`);
+        
+        const cachedEventStr = await AsyncStorage.getItem(`cache_event_${id}`);
+        const cachedGuestsStr = await AsyncStorage.getItem(`cache_guests_${id}`);
+        
+        if (cachedEventStr) {
+          const eventData = JSON.parse(cachedEventStr);
+          setInvitation(eventData);
+          
+          const ownerId = eventData.host?._id || eventData.user;
+          const userIsHost = currentId === ownerId;
+          setIsHost(userIsHost);
+          
+          if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
+          if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
+          if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
+          if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
+          
+          if (userIsHost && cachedGuestsStr) setGuests(JSON.parse(cachedGuestsStr));
+          
+          Alert.alert('Offline Mode', 'Showing cached event details.');
+        } else {
+          Alert.alert('Error', 'No internet and no cached data for this event.');
+          router.replace('/dashboard');
+        }
+        setAuthCheckComplete(true);
+        setLoading(false);
+        return; // STOP EXECUTION
+      }
+
+      // 🚨 ONLINE FETCH: With 5-second kill switch
+      const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { 
+        headers, timeout: 5000 
+      });
       const eventData = eventRes.data;
       setInvitation(eventData);
+      
+      // Save fresh event to Vault
+      await AsyncStorage.setItem(`cache_event_${id}`, JSON.stringify(eventData));
 
       const ownerId = eventData.host?._id || eventData.user;
       const userIsHost = currentId === ownerId;
@@ -90,23 +185,31 @@ export default function EventDetailsHub() {
 
       if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
       if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
-      
       if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
       if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
 
       if (userIsHost) {
         try {
-          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers });
+          const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
+            headers, timeout: 5000 
+          });
           setGuests(guestRes.data.guests || []);
-        } catch (guestErr: any) {
+          // Save fresh guest list to Vault
+          await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
+        } catch (guestErr) {
           setGuests([]); 
         }
       }
 
       setAuthCheckComplete(true);
     } catch (err: any) {
-      Alert.alert('Error', 'Failed to load event details.');
-      router.replace('/dashboard');
+      if (err.code === 'ECONNABORTED' || !err.response) {
+         Alert.alert('Offline', 'Network connection dropped.');
+         router.replace('/dashboard');
+      } else {
+         Alert.alert('Error', 'Failed to load event details.');
+         router.replace('/dashboard');
+      }
     } finally {
       setLoading(false);
     }

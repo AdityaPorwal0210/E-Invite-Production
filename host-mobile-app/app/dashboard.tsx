@@ -107,18 +107,18 @@ export default function Dashboard() {
     };
   }, []);
 
-  const fetchEvents = async () => {
+ const fetchEvents = async () => {
     try {
       setLoading(true);
       setError(null);
 
       const token = await AsyncStorage.getItem('authToken');
-      
       if (!token) {
         router.replace('/');
         return;
       }
 
+      // 1. Fetch User Data (Preserved from your original code)
       const userStr = await AsyncStorage.getItem('user');
       let myUserId: string | undefined;
       if (userStr) {
@@ -132,98 +132,84 @@ export default function Dashboard() {
         }
       }
 
-      const endpoint = viewMode === 'hosting' 
-        ? API_URL 
-        : `${API_URL}/received`;
+      // 2. Determine Routes and Cache Keys
+      const endpoint = viewMode === 'hosting' ? API_URL : `${API_URL}/received`;
+      const cacheKey = viewMode === 'hosting' ? CACHE_KEYS.INVITATIONS : CACHE_KEYS.INVITATIONS_RECEIVED;
 
-      // Determine cache key based on view mode
-      const cacheKey = viewMode === 'hosting' 
-        ? CACHE_KEYS.INVITATIONS 
-        : CACHE_KEYS.INVITATIONS_RECEIVED;
+      // 🚨 THE SHORT-CIRCUIT: Check hardware before networking
+      const NetInfo = require('@react-native-community/netinfo').default;
+      const networkState = await NetInfo.fetch();
 
+      if (!networkState.isConnected) {
+        console.log('🌐 Device offline. Pulling events from Vault.');
+        const cachedEvents = await getCachedData(cacheKey);
+        
+        if (cachedEvents) {
+          let eventsToShow = cachedEvents;
+          // Apply filter if in Attending mode
+          if (viewMode === 'attending' && myUserId) {
+            eventsToShow = cachedEvents.filter((event: any) => {
+              const eventOwnerId = event.user || event.host?._id;
+              return eventOwnerId !== myUserId;
+            });
+          }
+          setEvents(eventsToShow);
+          Alert.alert('Offline Mode', 'Showing cached events.');
+        } else {
+          setError('No internet connection and no cached data available.');
+        }
+        setLoading(false);
+        return; // STOP EXECUTION: Do not let Axios fire.
+      }
+
+      // 3. The Network Request (With Kill Switch)
       console.log(`👉 FETCHING EVENTS FROM: ${endpoint}`);
-
       const response = await axios.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
+        timeout: 5000, // Prevent Android Socket timeouts
       });
 
       let fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
       
+      // Apply filter if in Attending mode
       if (viewMode === 'attending' && myUserId) {
-        fetchedEvents = fetchedEvents.filter((event: Event) => {
+        fetchedEvents = fetchedEvents.filter((event: any) => {
           const eventOwnerId = event.user || event.host?._id;
           return eventOwnerId !== myUserId;
         });
       }
       
-      // Cache successful response for offline use
+      // Save fresh data to Vault
       await cacheData(cacheKey, fetchedEvents);
-      
       setEvents(fetchedEvents);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        console.log("❌ EVENTS FETCH ERROR:", err.response ? err.response.data : err.message);
-        
-        if (err.response?.status === 401) {
-          console.log("Dead token detected. Forcing logout.");
-          await AsyncStorage.multiRemove(['authToken', 'user']);
-          router.replace('/');
-          return;
-        }
-        
-        // Check if it's a network error (no response means network issue)
-        if (!err.response) {
-          console.log('🌐 Network error - attempting to load cached data');
-          
-          // Determine cache key based on view mode
-          const cacheKey = viewMode === 'hosting' 
-            ? CACHE_KEYS.INVITATIONS 
-            : CACHE_KEYS.INVITATIONS_RECEIVED;
-          
-          // Try to load cached data
-          const cachedEvents = await getCachedData(cacheKey);
-          
-          if (cachedEvents) {
-            console.log('✅ Loaded events from cache');
-            
-            // Apply the same filtering for attending view mode
-            const userStr = await AsyncStorage.getItem('user');
-            let myUserId: string | undefined;
-            if (userStr) {
-              try {
-                const parsedUser = JSON.parse(userStr);
-                myUserId = parsedUser._id || parsedUser.id;
-              } catch (e) {
-                console.log('Failed to parse user data');
-              }
-            }
-            
-            let eventsToShow = cachedEvents;
-            if (viewMode === 'attending' && myUserId) {
-              eventsToShow = cachedEvents.filter((event: Event) => {
-                const eventOwnerId = event.user || event.host?._id;
-                return eventOwnerId !== myUserId;
-              });
-            }
-            
-            setEvents(eventsToShow);
-            Alert.alert('Offline Mode', 'Showing cached events. Some data may be outdated.');
-          } else {
-            setError('No internet connection and no cached data available');
-          }
+
+    } catch (err: any) {
+      console.log("❌ EVENTS FETCH ERROR:", err.message);
+      
+      if (err.response?.status === 401) {
+        console.log("Dead token detected. Forcing logout.");
+        await AsyncStorage.multiRemove(['authToken', 'user']);
+        router.replace('/');
+        return;
+      }
+      
+      // Fallback if network drops exactly mid-flight
+      if (err.code === 'ECONNABORTED' || !err.response) {
+        const cacheKey = viewMode === 'hosting' ? CACHE_KEYS.INVITATIONS : CACHE_KEYS.INVITATIONS_RECEIVED;
+        const cachedEvents = await getCachedData(cacheKey);
+        if (cachedEvents) {
+          // You could run the attending filter here too if needed, but keeping it robust
+          setEvents(cachedEvents);
         } else {
-          setError(err.response?.data?.message || 'Failed to fetch events');
+           setError('Network request failed and no cache available.');
         }
-      } else if (err instanceof Error) {
-        setError(err.message);
       } else {
-        setError('Failed to fetch events');
+        setError(err.response?.data?.message || 'Failed to fetch events');
       }
     } finally {
       setLoading(false);
     }
   };
-
   useFocusEffect(
     useCallback(() => {
       fetchEvents();

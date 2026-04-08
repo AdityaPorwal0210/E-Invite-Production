@@ -41,11 +41,13 @@ export async function registerForPushNotificationsAsync() {
     }
     
     // Generate the token safely
+   // Generate the token safely
     try {
       const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    } catch (error) {
-      console.error('❌ Error getting push token:', error);
+    } catch (error: any) {
+      // 🚨 CHANGED from console.error to console.log to stop the Red Screen
+      console.log('⚠️ Failed to get push token (likely offline). Ignoring.', error.message);
       return null;
     }
 
