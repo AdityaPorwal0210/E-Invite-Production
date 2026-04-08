@@ -1,3 +1,4 @@
+import Toast from 'react-native-toast-message';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -137,28 +138,59 @@ export default function InvitationDetailScreen() {
     }
   };
 
-  const handleRSVP = async (status: string) => {
+ const handleRSVP = async (status: string) => {
+    // 1. Optimistic UI Update: Instant visual feedback
+    const previousRsvp = myRsvp;
+    setMyRsvp(status);
+    
+    // If you have a loading state for the button, uncomment the next line:
+    // setRsvpLoading(true);
+
     try {
       const token = await AsyncStorage.getItem('authToken');
-      
       console.log('📝 Updating RSVP to:', status);
-      
-      await axios.put(
+
+      const response = await axios.put(
         `${API_URL}/invitations/${id}/rsvp`,
         { status },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setMyRsvp(status);
-      Alert.alert('Success', `You have marked as "${status}"`);
-    } catch (err) {
-      if (axios.isAxiosError(err)) {
-        Alert.alert('Error', err.response?.data?.message || 'Failed to update RSVP');
+      // 2. Lock in the true status from the server
+      setMyRsvp(response.data.rsvpStatus || status);
+      
+      const statusMessage = status === 'accepted' ? 'attending' : status === 'declined' ? 'declined' : 'marked as maybe';
+      
+      // 3. Clean success toast
+      Toast.show({
+        type: 'success',
+        text1: 'RSVP Updated',
+        text2: `You are now ${statusMessage}.`,
+        position: 'bottom',
+      });
+
+    } catch (err: any) {
+      // 4. Rollback: Revert the UI if the network request fails
+      setMyRsvp(previousRsvp);
+      
+      // 5. Robust error extraction
+      let errorMessage = 'Could not save your RSVP. Try again.';
+      if (axios.isAxiosError(err) && err.response?.data?.message) {
+        errorMessage = err.response.data.message;
       } else if (err instanceof Error) {
-        Alert.alert('Error', err.message);
-      } else {
-        Alert.alert('Error', 'Failed to update RSVP');
+        errorMessage = err.message;
       }
+      
+      // 6. Clean error toast
+      Toast.show({
+        type: 'error',
+        text1: 'Update Failed',
+        text2: errorMessage,
+        position: 'bottom',
+      });
+    } finally {
+      // If you are using a loading state, uncomment the next line:
+      // setRsvpLoading(false);
     }
   };
 

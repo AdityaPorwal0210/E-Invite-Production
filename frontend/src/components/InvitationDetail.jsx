@@ -137,16 +137,33 @@ const InvitationDetail = () => {
     }
   };
 
-  const handleRSVP = async (status) => {
+ const handleRSVP = async (status) => {
+    // 1. Optimistic UI Update: Instant visual feedback
+    const previousRsvp = myRsvp;
+    setMyRsvp(status);
     setRsvpLoading(true);
+
     try {
+      // 2. Network Request (Using your web app's 'api' instance)
       const response = await api.put(`/invitations/${id}/rsvp`, { status });
+      
+      // 3. Lock in the true status from the server
       setMyRsvp(response.data.rsvpStatus);
+      
+      // 4. Clean web toast
       toast.success('RSVP updated successfully!');
+      
+      // 5. Trigger Web-specific background data refreshes
       await fetchInvitation();
       fetchNotificationCounts();
+      
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update RSVP');
+      // 6. Rollback: Revert the UI if the network request fails
+      setMyRsvp(previousRsvp);
+      
+      // 7. Robust error extraction
+      const errorMessage = err.response?.data?.message || 'Failed to update RSVP';
+      toast.error(errorMessage);
     } finally {
       setRsvpLoading(false);
     }
