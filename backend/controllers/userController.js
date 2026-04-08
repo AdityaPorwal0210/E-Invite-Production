@@ -483,18 +483,19 @@ const verifyPhoneSync = async (req, res) => {
 
 const updatePushToken = async (req, res) => {
   try {
-    const userId = req.user._id; 
-    // The frontend sends it as "pushToken"
-    const { pushToken } = req.body;
+    // Use req.user.id to match your auth middleware standards
+    const userId = req.user.id || req.user._id; 
+    
+    // Extract exactly what the frontend is sending
+    const { expoPushToken } = req.body;
 
-    if (!pushToken) {
+    if (!expoPushToken) {
       return res.status(400).json({ message: "Push token is required" });
     }
 
-    // CRITICAL FIX: Map the variable to the exact schema field name "expoPushToken"
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { expoPushToken: pushToken }, 
+      { expoPushToken: expoPushToken }, 
       { returnDocument: 'after' }
     );
 
