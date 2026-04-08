@@ -139,7 +139,7 @@ export default function EventDetailsHub() {
             setInvitingGroup(groupId);
             try {
               const token = await AsyncStorage.getItem('authToken');
-              const targetUrl = `${API_URL}/groups/${groupId}/invitations/${id}`;
+              const targetUrl = `${API_URL}/groups/${groupId}/send-invitation/${id}`;
               console.log("🚀 API Target URL:", targetUrl);
               console.log("📦 Payload Groups:", { groupId, eventId: id });
               console.log("🔑 Token present:", !!token);
