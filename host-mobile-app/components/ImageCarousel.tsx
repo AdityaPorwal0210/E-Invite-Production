@@ -7,55 +7,62 @@ import {
   StyleSheet, 
   Dimensions,
   NativeSyntheticEvent,
-  NativeScrollEvent
+  NativeScrollEvent,
+  TouchableOpacity // <-- We need this to make images clickable
 } from 'react-native';
+import ImageViewing from 'react-native-image-viewing'; // <-- The new library
 
-// Defines the exact shape of the props
 interface ImageCarouselProps {
   images: string[];
 }
 
-// 1. Grab the raw screen width. No padding subtractions.
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function ImageCarousel({ images }: ImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  
+  // New state to control when the full-screen modal is open
+  const [isViewerVisible, setIsViewerVisible] = useState(false); 
 
-  // Failsafe: If no images exist or it's not an array, render nothing.
   if (!Array.isArray(images) || images.length === 0) return null;
 
-  // Strictly typed scroll event
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    // Calculate the current index based on scroll position
     const slide = Math.round(
       event.nativeEvent.contentOffset.x / event.nativeEvent.layoutMeasurement.width
     );
     
-    // Only update state if the index actually changed and is within bounds
     if (slide !== activeIndex && slide >= 0 && slide < images.length) {
       setActiveIndex(slide);
     }
   };
 
+  // The library expects an array of objects structured like { uri: "..." }
+  // This maps your simple string array into the correct format instantly.
+  const formattedImages = images.map(img => ({ uri: img }));
+
   return (
     <View style={styles.container}>
       <ScrollView
         horizontal
-        pagingEnabled // Snaps to the next image natively
+        pagingEnabled
         showsHorizontalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={16} // Fires 60fps for smooth state updates
+        scrollEventThrottle={16}
       >
         {images.map((img, index) => (
-          <Image 
+          <TouchableOpacity 
             key={index.toString()} 
-            source={{ uri: img }} 
-            style={styles.image} 
-          />
+            activeOpacity={0.9} 
+            onPress={() => setIsViewerVisible(true)} // Tapping opens the viewer
+          >
+            <Image 
+              source={{ uri: img }} 
+              style={styles.image} 
+            />
+          </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {/* Only render the badge if there is more than 1 image */}
       {images.length > 1 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
@@ -63,6 +70,16 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
           </Text>
         </View>
       )}
+
+      {/* --- THE FULL SCREEN LIGHTBOX MODAL --- */}
+      <ImageViewing
+        images={formattedImages}
+        imageIndex={activeIndex} // Opens exactly to the image you tapped
+        visible={isViewerVisible}
+        onRequestClose={() => setIsViewerVisible(false)}
+        swipeToCloseEnabled={true}
+        doubleTapToZoomEnabled={true}
+      />
     </View>
   );
 }
@@ -71,18 +88,18 @@ const styles = StyleSheet.create({
   container: { 
     position: 'relative',
     width: '100%',
-    backgroundColor: '#E5E7EB', // Neutral gray background while images load
+    backgroundColor: '#E5E7EB', 
   },
   image: { 
-    width: screenWidth, // 2. Forces image to strictly touch left/right edges
-    height: 350,        // 3. Expands vertical footprint to fix the "small" look
+    width: screenWidth, 
+    height: 350,        
     resizeMode: 'cover' 
   },
   badge: {
     position: 'absolute',
     bottom: 12,
     right: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)', // Dark semi-transparent background
+    backgroundColor: 'rgba(0, 0, 0, 0.75)', 
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
