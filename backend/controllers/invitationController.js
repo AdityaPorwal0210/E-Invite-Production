@@ -416,7 +416,7 @@ const getInvitationById = async (req, res) => {
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     const isHost = isPrimaryHost || isDelegate;
-    
+
     if (isHost) {
       const guestList = await ReceivedInvitation.find({ invitation: id })
         .populate('recipient', 'name email')
@@ -1251,6 +1251,32 @@ const markAsRead = async (req, res) => {
   }
 };
 
+
+const updateDelegates = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { delegates } = req.body; // Array of User IDs
+
+    const invitation = await Invitation.findById(id);
+
+    if (!invitation) {
+      return res.status(404).json({ message: "Invitation not found" });
+    }
+
+    // STRICT CHECK: Only the original creator can manage delegates
+    if (invitation.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Only the primary host can manage co-hosts." });
+    }
+
+    invitation.delegates = delegates;
+    await invitation.save();
+
+    res.status(200).json({ message: "Co-hosts updated successfully", delegates: invitation.delegates });
+  } catch (error) {
+    console.error("Update Delegates Error:", error);
+    res.status(500).json({ message: "Server error while updating co-hosts" });
+  }
+};
 // @desc    Update group invite permissions
 // @route   PUT /api/groups/:id/permissions
 
@@ -1271,5 +1297,6 @@ module.exports = {
   getEventGuestList,
   removeGuest,
   markAsRead,
+  updateDelegates
   
 };

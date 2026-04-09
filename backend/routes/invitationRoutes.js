@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { createInvitation, getInvitations, getInvitationById, updateRSVP, getReceivedInvitations, getSavedInvitations, updateInvitation, deleteInvitation, getPublicInvitation, getTeaser, revokeInvite, shareInvitationLater, toggleSaveInvitation, getEventGuestList, removeGuest, markAsRead } = require("../controllers/invitationController");
+const { updateDelegates,createInvitation, getInvitations, getInvitationById, updateRSVP, getReceivedInvitations, getSavedInvitations, updateInvitation, deleteInvitation, getPublicInvitation, getTeaser, revokeInvite, shareInvitationLater, toggleSaveInvitation, getEventGuestList, removeGuest, markAsRead } = require("../controllers/invitationController");
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/multer.middleware");
 
@@ -24,5 +24,5 @@ router.put("/:id/save", protect, toggleSaveInvitation);
 router.put("/:id/read", protect, markAsRead);
 router.put("/:id", protect, upload.array("attachments", 5), updateInvitation);
 router.delete("/:id", protect, deleteInvitation);
-
+router.put("/:id/delegates", protect, updateDelegates);
 module.exports = router;

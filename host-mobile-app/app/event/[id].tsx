@@ -1,6 +1,9 @@
 import Toast from 'react-native-toast-message';
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal } from 'react-native';
+import { 
+  View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, 
+  StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal, Share 
+} from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -12,7 +15,6 @@ import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 import ImageCarousel from '../../components/ImageCarousel';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
-// Clean base URL for Socket.io (Strips /api)
 const BASE_URL = API_URL.replace('/api', '');
 
 interface Attachment {
@@ -51,6 +53,17 @@ export default function EventDetailsHub() {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [invitingGroup, setInvitingGroup] = useState<string | null>(null);
 
+  // --- Search Guest State ---
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // --- CO-HOST / DELEGATE STATE ---
+  const [showCoHostModal, setShowCoHostModal] = useState(false);
+  const [coHostSearch, setCoHostSearch] = useState('');
+  const [coHostResults, setCoHostResults] = useState<any[]>([]);
+  const [selectedCoHosts, setSelectedCoHosts] = useState<any[]>([]);
+  const [savingCoHosts, setSavingCoHosts] = useState(false);
+  const coHostSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { width: screenWidth } = Dimensions.get('window');
 
   // 🧪 HARDWARE HEARTBEAT
@@ -65,9 +78,7 @@ export default function EventDetailsHub() {
   // --- REAL-TIME RSVP WEBSOCKET LISTENER ---
   useEffect(() => {
     if (!id) return;
-
     console.log('🔌 ATTEMPTING CONNECTION TO:', BASE_URL);
-
     const socket = io(BASE_URL, {
       transports: ['websocket'],
       forceNew: true,
@@ -83,7 +94,6 @@ export default function EventDetailsHub() {
 
     socket.on('rsvp-updated', (payload: any) => {
       console.log('🔥 REAL-TIME RSVP RECEIVED:', payload);
-      
       if (payload.eventId === id) {
         console.log('🔄 Match found. Refreshing guest list...');
         silentRefresh();
@@ -100,16 +110,15 @@ export default function EventDetailsHub() {
     try {
       const token = await AsyncStorage.getItem('authToken');
       const headers = { Authorization: `Bearer ${token}` };
-      const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { 
-        headers, timeout: 5000 
-      });
+      const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
       setGuests(guestRes.data.guests || []);
       await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
     } catch (e) {
       console.log('Background refresh failed');
     }
   };
-const checkAuthAndFetch = async () => {
+
+  const checkAuthAndFetch = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -215,6 +224,7 @@ const checkAuthAndFetch = async () => {
       setLoading(false);
     }
   };
+
   const loadMyGroups = async () => {
     setLoadingGroups(true);
     try {
@@ -227,6 +237,63 @@ const checkAuthAndFetch = async () => {
       Alert.alert("Error", "Failed to load your groups.");
     } finally {
       setLoadingGroups(false);
+    }
+  };
+
+  // --- CO-HOST LOGIC ---
+  const openCoHostModal = () => {
+    setSelectedCoHosts(invitation?.delegates || []);
+    setShowCoHostModal(true);
+  };
+
+  useEffect(() => {
+    if (coHostSearchTimeoutRef.current) clearTimeout(coHostSearchTimeoutRef.current);
+    if (coHostSearch.trim().length < 2) {
+      setCoHostResults([]);
+      return;
+    }
+    coHostSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        const res = await axios.get(`${API_URL}/users/search?query=${encodeURIComponent(coHostSearch)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const filtered = res.data.filter((u: any) => u._id !== currentUserId);
+        setCoHostResults(filtered);
+      } catch (err) {
+        console.log('Failed to search users for co-host');
+      }
+    }, 300);
+    return () => { if (coHostSearchTimeoutRef.current) clearTimeout(coHostSearchTimeoutRef.current); };
+  }, [coHostSearch]);
+
+  const toggleCoHost = (user: any) => {
+    const isSelected = selectedCoHosts.some(c => (c._id || c) === user._id);
+    if (isSelected) {
+      setSelectedCoHosts(prev => prev.filter(c => (c._id || c) !== user._id));
+    } else {
+      setSelectedCoHosts(prev => [...prev, user]);
+    }
+  };
+
+  const handleSaveCoHosts = async () => {
+    setSavingCoHosts(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const delegateIds = selectedCoHosts.map(c => c._id || c);
+      
+      await axios.put(`${API_URL}/invitations/${id}/delegates`, 
+        { delegates: delegateIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      Alert.alert('Success', 'Co-hosts updated successfully!');
+      setShowCoHostModal(false);
+      checkAuthAndFetch(); 
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to save co-hosts');
+    } finally {
+      setSavingCoHosts(false);
     }
   };
 
@@ -260,6 +327,17 @@ const checkAuthAndFetch = async () => {
         }
       ]
     );
+  };
+
+  const handleShareEvent = async () => {
+    try {
+      const eventLink = `https://invitoinnbox.vercel.app/invitation/${id}`; 
+      await Share.share({
+        message: `You are invited to "${invitation?.title}"! \n\nDate: ${new Date(invitation?.eventDate).toLocaleDateString()}\n\nClick here to view details and RSVP: ${eventLink}`,
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to share event');
+    }
   };
 
   const handleRSVP = async (status: string) => {
@@ -339,14 +417,11 @@ const checkAuthAndFetch = async () => {
     setSaving(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      
-      // We MUST use FormData to send files over HTTP, not a standard JSON object.
       const formData = new FormData();
       
       if (videoUrl) formData.append('videoUrl', videoUrl);
       if (googleMapsLink) formData.append('googleMapsLink', googleMapsLink);
 
-      // Append raw physical files to the payload
       attachments.forEach((file) => {
         formData.append('attachments', {
           uri: file.uri,
@@ -355,15 +430,13 @@ const checkAuthAndFetch = async () => {
         } as any); 
       });
 
-      // Warning: Your backend PUT route at /invitations/:id MUST be configured 
-      // with a middleware like Multer to parse 'multipart/form-data'
       await axios.put(
         `${API_URL}/invitations/${id}`,
         formData,
         { 
           headers: { 
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data', // Crucial header for files
+            'Content-Type': 'multipart/form-data', 
           } 
         }
       );
@@ -455,6 +528,13 @@ const checkAuthAndFetch = async () => {
   const pending = guests.filter(g => g.rsvpStatus === 'tentative' || !g.rsvpStatus).length;
   const declined = guests.filter(g => g.rsvpStatus === 'declined').length;
 
+  const filteredGuests = guests.filter((guest: any) => {
+    const name = guest.recipient?.name || guest.name || 'Unknown Guest';
+    const email = guest.recipient?.email || guest.email || '';
+    const query = searchQuery.toLowerCase();
+    return name.toLowerCase().includes(query) || email.toLowerCase().includes(query);
+  });
+
   const allImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
 
   return (
@@ -508,7 +588,19 @@ const checkAuthAndFetch = async () => {
                   <View style={styles.guestListContainer}>
                     <Text style={styles.sectionTitle}>Attendee Roster</Text>
                     <Text style={styles.guestSummaryText}>{attending} Attending, {declined} Declined{pending > 0 ? `, ${pending} Pending` : ''}</Text>
-                    {guests.slice(0, 5).map((guest: any, index: number) => {
+                    
+                    {/* NEW: SEARCH INPUT */}
+                    <TextInput
+                      style={[styles.input, { marginBottom: SPACING.md, backgroundColor: '#F3F4F6' }]}
+                      placeholder="🔍 Search by name or email..."
+                      value={searchQuery}
+                      onChangeText={setSearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+
+                    {/* UPDATED: Map over filteredGuests */}
+                    {filteredGuests.map((guest: any, index: number) => {
                       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
                       const guestEmail = guest.recipient?.email || guest.email || '';
                       const rsvpStatus = guest.rsvpStatus;
@@ -530,10 +622,13 @@ const checkAuthAndFetch = async () => {
                         </View>
                       );
                     })}
+                    {filteredGuests.length === 0 && (
+                      <Text style={{ textAlign: 'center', color: COLORS.textMuted, marginTop: 10 }}>No guests match your search.</Text>
+                    )}
                   </View>
                 )}
 
-                {/* --- DUAL INVITE BUTTONS --- */}
+                {/* --- INVITE & SHARE BUTTONS --- */}
                 <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg }}>
                   <TouchableOpacity 
                     style={[styles.button, { backgroundColor: COLORS.primary, flex: 1 }]} 
@@ -552,6 +647,14 @@ const checkAuthAndFetch = async () => {
                     <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>👥 Invite Group</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* NEW: NATIVE SHARE BUTTON */}
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: '#10B981', marginTop: SPACING.sm }]} 
+                  onPress={handleShareEvent}
+                >
+                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>📤 Share Forwardable Link</Text>
+                </TouchableOpacity>
                 {/* --------------------------- */}
                 
                 <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primaryLight, marginTop: SPACING.sm }]} onPress={() => setIsEditing(!isEditing)}>
@@ -562,7 +665,6 @@ const checkAuthAndFetch = async () => {
                   <View style={styles.editSection}>
                     <Text style={styles.editSectionTitle}>Edit Event Media</Text>
                     
-                    {/* --- NEW: THE MISSING IMAGE UPLOAD UI --- */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Add Photos</Text>
                       <TouchableOpacity style={{ backgroundColor: '#E0E7FF', padding: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#C7D2FE', borderStyle: 'dashed' }} onPress={pickImage}>
@@ -586,7 +688,6 @@ const checkAuthAndFetch = async () => {
                         </ScrollView>
                       )}
                     </View>
-                    {/* ---------------------------------------- */}
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Video URL (Optional)</Text>
@@ -627,6 +728,16 @@ const checkAuthAndFetch = async () => {
 
         {isHost && (
           <View style={styles.bottomControlPanel}>
+            {/* ONLY the primary creator can manage co-hosts */}
+            {currentUserId === (invitation.host?._id || invitation.user) && (
+              <TouchableOpacity 
+                style={[styles.editEventButton, { backgroundColor: '#8B5CF6', marginBottom: SPACING.md }]} 
+                onPress={openCoHostModal}
+              >
+                <Text style={styles.editEventButtonText}>👑 Manage Co-Hosts</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity style={styles.editEventButton} onPress={() => router.push(`/edit/${id}`)}>
               <Text style={styles.editEventButtonText}>Edit Event Details</Text>
             </TouchableOpacity>
@@ -698,6 +809,65 @@ const checkAuthAndFetch = async () => {
           </View>
         </View>
       </Modal>
+
+      {/* --- MANAGE CO-HOSTS MODAL --- */}
+      <Modal visible={showCoHostModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.manageHeader}>
+              <Text style={styles.manageTitle}>Manage Co-Hosts</Text>
+              <TouchableOpacity onPress={() => setShowCoHostModal(false)} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{...TYPOGRAPHY.small, color: COLORS.textMuted, marginBottom: SPACING.md}}>
+              Co-hosts get a "spare key" to this event. They can edit details and invite their own guests.
+            </Text>
+
+            <TextInput
+              style={[styles.input, { marginBottom: SPACING.md }]}
+              placeholder="Search registered users by name or email..."
+              value={coHostSearch}
+              onChangeText={setCoHostSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            {coHostResults.length > 0 && (
+              <ScrollView style={{ maxHeight: 200, marginBottom: SPACING.md, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8 }}>
+                {coHostResults.map((user) => {
+                  const isSelected = selectedCoHosts.some(c => (c._id || c) === user._id);
+                  return (
+                    <TouchableOpacity 
+                      key={user._id} 
+                      style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                      onPress={() => toggleCoHost(user)}
+                    >
+                      <View>
+                        <Text style={{ fontWeight: 'bold' }}>{user.name}</Text>
+                        <Text style={{ fontSize: 12, color: COLORS.textMuted }}>{user.email}</Text>
+                      </View>
+                      <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: isSelected ? COLORS.primary : COLORS.border, backgroundColor: isSelected ? COLORS.primary : 'transparent', justifyContent: 'center', alignItems: 'center' }}>
+                        {isSelected && <Text style={{ color: 'white', fontSize: 14, fontWeight: 'bold' }}>✓</Text>}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.saveButton, savingCoHosts && { opacity: 0.7 }]} 
+              onPress={handleSaveCoHosts} 
+              disabled={savingCoHosts}
+            >
+              {savingCoHosts ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveButtonText}>Save Co-Hosts</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </>
   );
 }
