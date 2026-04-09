@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   View, 
   ScrollView, 
@@ -9,10 +9,10 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   TouchableOpacity,
-  SafeAreaView // Required to keep the modal header out of the notch
+  SafeAreaView
 } from 'react-native';
 import ImageViewing from 'react-native-image-viewing';
-import { Ionicons } from '@expo/vector-icons'; // We will use Expo's native icons for the arrows
+import { Ionicons } from '@expo/vector-icons';
 
 interface ImageCarouselProps {
   images: string[];
@@ -23,9 +23,10 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function ImageCarousel({ images }: ImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isViewerVisible, setIsViewerVisible] = useState(false);
-  
-  // We need to track the active index INSIDE the modal separately from the carousel
   const [modalActiveIndex, setModalActiveIndex] = useState(0);
+  
+  // Create a reference to control the inline ScrollView programmatically
+  const scrollViewRef = useRef<ScrollView>(null);
 
   if (!Array.isArray(images) || images.length === 0) return null;
 
@@ -38,14 +39,21 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
     }
   };
 
+  // Function to physically scroll the inline carousel when an arrow is tapped
+  const scrollToSlide = (index: number) => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ x: index * screenWidth, animated: true });
+    }
+  };
+
   const formattedImages = images.map(img => ({ uri: img }));
 
   const openModal = () => {
-    setModalActiveIndex(activeIndex); // Sync the modal to whatever image we tapped
+    setModalActiveIndex(activeIndex);
     setIsViewerVisible(true);
   };
 
-  // Custom UI overlay for the full-screen modal
+  // The Full-Screen Modal Overlay
   const LightboxHeader = ({ currentIndex }: { currentIndex: number }) => (
     <SafeAreaView style={styles.lightboxHeaderContainer}>
       <View style={styles.lightboxHeader}>
@@ -60,16 +68,14 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Conditional Left Arrow */}
       {currentIndex > 0 && (
-        <View style={styles.arrowLeft}>
+        <View style={styles.modalArrowLeft}>
           <Ionicons name="chevron-back" size={36} color="rgba(255,255,255,0.7)" />
         </View>
       )}
 
-      {/* Conditional Right Arrow */}
       {currentIndex < images.length - 1 && (
-        <View style={styles.arrowRight}>
+        <View style={styles.modalArrowRight}>
           <Ionicons name="chevron-forward" size={36} color="rgba(255,255,255,0.7)" />
         </View>
       )}
@@ -78,7 +84,9 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
 
   return (
     <View style={styles.container}>
+      {/* INLINE CAROUSEL */}
       <ScrollView
+        ref={scrollViewRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -96,6 +104,26 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
         ))}
       </ScrollView>
 
+      {/* --- INLINE NAVIGATION ARROWS --- */}
+      {images.length > 1 && activeIndex > 0 && (
+        <TouchableOpacity 
+          style={styles.inlineArrowLeft} 
+          onPress={() => scrollToSlide(activeIndex - 1)}
+        >
+          <Ionicons name="chevron-back" size={24} color="white" />
+        </TouchableOpacity>
+      )}
+
+      {images.length > 1 && activeIndex < images.length - 1 && (
+        <TouchableOpacity 
+          style={styles.inlineArrowRight} 
+          onPress={() => scrollToSlide(activeIndex + 1)}
+        >
+          <Ionicons name="chevron-forward" size={24} color="white" />
+        </TouchableOpacity>
+      )}
+
+      {/* INLINE COUNTER BADGE */}
       {images.length > 1 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
@@ -104,12 +132,13 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
         </View>
       )}
 
+      {/* FULL SCREEN LIGHTBOX */}
       <ImageViewing
         images={formattedImages}
         imageIndex={modalActiveIndex}
         visible={isViewerVisible}
         onRequestClose={() => setIsViewerVisible(false)}
-        onImageIndexChange={(imageIndex) => setModalActiveIndex(imageIndex)} // Update state as user swipes
+        onImageIndexChange={(imageIndex) => setModalActiveIndex(imageIndex)}
         HeaderComponent={() => <LightboxHeader currentIndex={modalActiveIndex} />}
         swipeToCloseEnabled={true}
         doubleTapToZoomEnabled={true}
@@ -126,7 +155,7 @@ const styles = StyleSheet.create({
   },
   image: { 
     width: screenWidth, 
-    height: 350,        
+    height: 400,        
     resizeMode: 'cover' 
   },
   badge: {
@@ -144,8 +173,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 1, 
   },
+
+  // --- Inline Arrow Styles ---
+  inlineArrowLeft: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -20, // Vertically center a 40px tall circle
+    left: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inlineArrowRight: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -20,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   
-  // Lightbox Custom Overlay Styles
+  // --- Lightbox Custom Overlay Styles ---
   lightboxHeaderContainer: {
     width: '100%',
     position: 'absolute',
@@ -157,7 +212,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10, // Adjusted for SafeAreaView
+    paddingTop: 10, 
   },
   lightboxCounterText: {
     color: 'white',
@@ -173,14 +228,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 4,
   },
-  arrowLeft: {
+  modalArrowLeft: {
     position: 'absolute',
-    top: screenHeight / 2 - 20, // Vertically center the arrow
+    top: screenHeight / 2 - 20, 
     left: 10,
   },
-  arrowRight: {
+  modalArrowRight: {
     position: 'absolute',
-    top: screenHeight / 2 - 20, // Vertically center the arrow
+    top: screenHeight / 2 - 20, 
     right: 10,
   }
 });
