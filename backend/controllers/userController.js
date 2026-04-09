@@ -532,6 +532,32 @@ const testPushNotification = async (req, res) => {
     res.status(500).json({ message: "Server error during test push." });
   }
 };
+
+// @desc    Save Expo Push Token
+// @route   PUT /api/users/push-token
+// @access  Private
+const savePushToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({ message: "No token provided" });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.expoPushToken = token;
+    await user.save();
+
+    res.status(200).json({ message: "Push token saved successfully" });
+  } catch (error) {
+    console.error("Save Push Token Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
 module.exports = {
   registerUser,
   loginUser,
@@ -546,5 +572,6 @@ module.exports = {
   requestPhoneSync,
   verifyPhoneSync,
   updatePushToken,
-  testPushNotification
+  testPushNotification,
+  savePushToken
 };
