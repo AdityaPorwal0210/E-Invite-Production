@@ -109,8 +109,7 @@ export default function EventDetailsHub() {
       console.log('Background refresh failed');
     }
   };
-
-  const checkAuthAndFetch = async () => {
+const checkAuthAndFetch = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -145,11 +144,21 @@ export default function EventDetailsHub() {
         if (cachedEventStr) {
           const eventData = JSON.parse(cachedEventStr);
           setInvitation(eventData);
+          
+          // --- FIX 1: DELEGATE CHECK FOR OFFLINE VAULT ---
           const ownerId = eventData.host?._id || eventData.user;
-          setIsHost(currentId === ownerId);
+          const isPrimaryHost = currentId === ownerId;
+          const isDelegate = eventData.delegates && eventData.delegates.some((delegate: any) => {
+            const delegateId = typeof delegate === 'string' ? delegate : delegate._id;
+            return delegateId === currentId;
+          });
+          const userIsHost = isPrimaryHost || isDelegate;
+          setIsHost(userIsHost);
+          // ----------------------------------------------
+
           if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
           if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
-          if (currentId !== ownerId && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
+          if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
           if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
           if (cachedGuestsStr) setGuests(JSON.parse(cachedGuestsStr));
         } else {
@@ -167,15 +176,23 @@ export default function EventDetailsHub() {
       setInvitation(eventData);
       await AsyncStorage.setItem(`cache_event_${id}`, JSON.stringify(eventData));
 
+      // --- FIX 2: DELEGATE CHECK FOR ONLINE FETCH ---
       const ownerId = eventData.host?._id || eventData.user;
-      const userIsHost = currentId === ownerId;
+      const isPrimaryHost = currentId === ownerId;
+      const isDelegate = eventData.delegates && eventData.delegates.some((delegate: any) => {
+        const delegateId = typeof delegate === 'string' ? delegate : delegate._id;
+        return delegateId === currentId;
+      });
+      const userIsHost = isPrimaryHost || isDelegate;
       setIsHost(userIsHost); 
+      // ---------------------------------------------
 
       if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
       if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
       if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
       if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
 
+      // We now use the combined `userIsHost` boolean to fetch guests
       if (userIsHost) {
         try {
           const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
@@ -198,7 +215,6 @@ export default function EventDetailsHub() {
       setLoading(false);
     }
   };
-
   const loadMyGroups = async () => {
     setLoadingGroups(true);
     try {

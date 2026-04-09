@@ -412,8 +412,11 @@ const getInvitationById = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    const isHost = invitation.user.toString() === req.user.id;
-
+// CHECK BOTH PRIMARY HOST AND DELEGATES
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    const isHost = isPrimaryHost || isDelegate;
+    
     if (isHost) {
       const guestList = await ReceivedInvitation.find({ invitation: id })
         .populate('recipient', 'name email')
