@@ -380,16 +380,19 @@ const createInvitation = async (req, res) => {
 };
 const getInvitations = async (req, res) => {
   try {
-    const invitations = await Invitation.find({ user: req.user.id })
+    // Find events where the user is the main Host OR is in the Delegates array
+    const invitations = await Invitation.find({ 
+      $or: [
+        { user: req.user.id }, 
+        { delegates: req.user.id }
+      ] 
+    })
       .sort({ createdAt: -1 })
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
       .populate('invitedUsers', 'name email');
 
-    res.status(200).json({
-      count: invitations.length,
-      invitations
-    });
+    res.status(200).json({ count: invitations.length, invitations });
   } catch (error) {
     console.error("Fetch Error:", error);
     res.status(500).json({ message: "Server error while fetching invitations" });
@@ -808,7 +811,11 @@ const shareInvitationLater = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    if (invitation.user.toString() !== req.user.id) {
+    // CORRECT: Allows the Host OR any assigned Delegate to send invites
+    const isHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+
+    if (!isHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to share this invitation" });
     }
 

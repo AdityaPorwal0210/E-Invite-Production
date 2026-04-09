@@ -42,6 +42,7 @@ const invitationSchema = new mongoose.Schema({
     required: true,
     ref: 'User' // THIS is the magic word. It tells Mongoose exactly which collection to search.
   },
+  delegates: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   coverImage: {
     type: String, // Cloudinary URL
     default: null
