@@ -555,6 +555,7 @@ const updateInvitation = async (req, res) => {
       return res.status(403).json({ message: "Not authorized to update this invitation" });
     }
 
+    // --- Update Text Fields ---
     if (title) invitation.title = title;
     if (description) invitation.description = description;
     if (eventDate) invitation.eventDate = eventDate;
@@ -562,21 +563,41 @@ const updateInvitation = async (req, res) => {
     if (videoUrl !== undefined) invitation.videoUrl = videoUrl || null;
     if (googleMapsLink !== undefined) invitation.googleMapsLink = googleMapsLink || null;
 
-    if (req.file) {
-      if (invitation.coverImage) {
-        await deleteFromCloudinary(invitation.coverImage);
-      }
+    // --- Process Array of Attachments ---
+    // Because the route uses upload.array(), files arrive in req.files
+    if (req.files && req.files.length > 0) {
+      console.log(`🖼️ Update Mode: Processing ${req.files.length} uploaded files...`);
       
-      const uploadResult = await uploadOnCloudinary(req.file.path);
-      invitation.coverImage = uploadResult?.url;
-      
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
+      const newAttachments = [];
+
+      for (const file of req.files) {
+        const uploadResult = await uploadOnCloudinary(file.path);
+        if (uploadResult?.url) {
+          newAttachments.push({
+            url: uploadResult.url,
+            fileType: file.mimetype,
+            name: file.originalname
+          });
+        }
+        
+        // Clean up the local temp file after upload
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
       }
+
+      // Append new attachments to any existing ones in the database
+      // Or overwrite them completely depending on your desired logic.
+      // This appends them:
+      if (!invitation.attachments) {
+        invitation.attachments = [];
+      }
+      invitation.attachments = [...invitation.attachments, ...newAttachments];
     }
 
     await invitation.save();
 
+    // --- Send Notifications to Guests ---
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     try {
       const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
@@ -601,8 +622,11 @@ const updateInvitation = async (req, res) => {
     res.status(200).json(invitation);
   } catch (error) {
     console.error("Update Error:", error);
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Safety cleanup: If the controller crashes, delete any local temp files
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      }
     }
     res.status(500).json({ message: "Server error while updating invitation" });
   }

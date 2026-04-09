@@ -22,7 +22,7 @@ router.put("/:id/rsvp", protect, updateRSVP);
 router.put("/:id/revoke", protect, revokeInvite);
 router.put("/:id/save", protect, toggleSaveInvitation);
 router.put("/:id/read", protect, markAsRead);
-router.put("/:id", protect, upload.single("coverImage"), updateInvitation);
+router.put("/:id", protect, upload.array("attachments", 5), updateInvitation);
 router.delete("/:id", protect, deleteInvitation);
 
 module.exports = router;

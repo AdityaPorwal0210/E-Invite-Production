@@ -20,7 +20,7 @@ import PhoneSyncCard from '../components/PhoneSyncCard';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 import * as Notifications from 'expo-notifications';
 import { cacheData, getCachedData, CACHE_KEYS } from '../utils/cache';
-
+import EventCardSkeleton from '../components/EventCardSkeleton';
 interface Event {
   _id: string;
   title?: string;
@@ -251,11 +251,12 @@ export default function Dashboard() {
       <Stack.Screen options={{ headerShown: false }} />
       
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={COLORS.primary || '#3730A3'} />
-          <Text style={styles.loadingText}>Loading your events...</Text>
-        </View>
-      ) : (
+  <View style={{ flex: 1, backgroundColor: COLORS.background, padding: SPACING.screenPadding }}>
+    <EventCardSkeleton />
+    <EventCardSkeleton />
+    <EventCardSkeleton />
+  </View>
+): (
         <>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>My Events</Text>

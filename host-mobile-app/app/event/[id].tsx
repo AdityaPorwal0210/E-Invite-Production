@@ -6,10 +6,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { io } from 'socket.io-client'; // 🚨 Note: imported with curly braces if default import fails, but standard is without. Using standard default import below.
+import { io } from 'socket.io-client';
 
-// IMPORTANT: Ensure this path is correct for your theme file
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
+import ImageCarousel from '../../components/ImageCarousel';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 // Clean base URL for Socket.io (Strips /api)
@@ -40,8 +40,6 @@ export default function EventDetailsHub() {
   const [googleMapsLink, setGoogleMapsLink] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [saving, setSaving] = useState(false);
-
-  const [activeIndex, setActiveIndex] = useState(0);
 
   const [authCheckComplete, setAuthCheckComplete] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -325,24 +323,42 @@ export default function EventDetailsHub() {
     setSaving(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const updateData: any = {};
-      if (videoUrl) updateData.videoUrl = videoUrl;
-      if (googleMapsLink) updateData.googleMapsLink = googleMapsLink;
+      
+      // We MUST use FormData to send files over HTTP, not a standard JSON object.
+      const formData = new FormData();
+      
+      if (videoUrl) formData.append('videoUrl', videoUrl);
+      if (googleMapsLink) formData.append('googleMapsLink', googleMapsLink);
 
-      if (Object.keys(updateData).length > 0) {
-        await axios.put(
-          `${API_URL}/invitations/${id}`,
-          updateData,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
+      // Append raw physical files to the payload
+      attachments.forEach((file) => {
+        formData.append('attachments', {
+          uri: file.uri,
+          name: file.name,
+          type: file.type,
+        } as any); 
+      });
+
+      // Warning: Your backend PUT route at /invitations/:id MUST be configured 
+      // with a middleware like Multer to parse 'multipart/form-data'
+      await axios.put(
+        `${API_URL}/invitations/${id}`,
+        formData,
+        { 
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data', // Crucial header for files
+          } 
+        }
+      );
 
       Alert.alert('Success', 'Event media updated successfully!');
       setIsEditing(false);
       setAttachments([]); 
       checkAuthAndFetch();
-    } catch (err) {
-      Alert.alert('Error', 'Failed to update event media');
+    } catch (err: any) {
+      console.error("Save Error:", err.response?.data || err.message);
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update event media');
     } finally {
       setSaving(false);
     }
@@ -425,32 +441,13 @@ export default function EventDetailsHub() {
 
   const allImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
 
-  const handleScroll = (event: any) => {
-    const slideSize = event.nativeEvent.layoutMeasurement.width;
-    const index = event.nativeEvent.contentOffset.x / slideSize;
-    setActiveIndex(Math.round(index));
-  };
-
   return (
     <>
       <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
       <ScrollView style={styles.container} bounces={false} showsVerticalScrollIndicator={false}>
         
         {allImages.length > 0 ? (
-          <View style={{ height: 300, width: screenWidth, backgroundColor: '#e5e7eb' }}>
-            <FlatList
-              data={allImages}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(item, index) => index.toString()}
-              onScroll={handleScroll}
-              scrollEventThrottle={16}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item }} style={{ width: screenWidth, height: 300, resizeMode: 'cover' }} />
-              )}
-            />
-          </View>
+          <ImageCarousel images={allImages} />
         ) : (
           <View style={[styles.coverImage, styles.carouselPlaceholder]}><Text style={{ fontSize: 40 }}>📅</Text></View>
         )}
@@ -548,6 +545,33 @@ export default function EventDetailsHub() {
                 {isEditing && (
                   <View style={styles.editSection}>
                     <Text style={styles.editSectionTitle}>Edit Event Media</Text>
+                    
+                    {/* --- NEW: THE MISSING IMAGE UPLOAD UI --- */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Add Photos</Text>
+                      <TouchableOpacity style={{ backgroundColor: '#E0E7FF', padding: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#C7D2FE', borderStyle: 'dashed' }} onPress={pickImage}>
+                        <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>+ Select Images from Gallery</Text>
+                      </TouchableOpacity>
+
+                      {/* Image Preview List */}
+                      {attachments.length > 0 && (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+                          {attachments.map((file, index) => (
+                            <View key={index} style={{ marginRight: 10, position: 'relative' }}>
+                              <Image source={{ uri: file.uri }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                              <TouchableOpacity 
+                                style={{ position: 'absolute', top: -5, right: -5, backgroundColor: COLORS.danger, width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }} 
+                                onPress={() => removeAttachment(index)}
+                              >
+                                <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>X</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      )}
+                    </View>
+                    {/* ---------------------------------------- */}
+
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Video URL (Optional)</Text>
                       <TextInput style={styles.input} placeholder="YouTube or video link" value={videoUrl} onChangeText={setVideoUrl} keyboardType="url" autoCapitalize="none" />
@@ -620,7 +644,6 @@ export default function EventDetailsHub() {
                 keyExtractor={(item) => item._id}
                 showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => {
-                  // Check if user can invite to this group
                   const isAdmin = item.owner?._id === currentUserId || 
                                   item.admins?.some((a: any) => a._id === currentUserId);
                   const isLocked = item.invitePermission === 'admins' && !isAdmin;
@@ -667,7 +690,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   carouselPlaceholder: { backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
-  coverImage: { width: '100%', height: 280, resizeMode: 'cover' },
+  coverImage: { width: '100%', height: 400, resizeMode: 'cover' },
   bookmarkButton: { position: 'absolute', top: 20, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 50 },
   detailsCard: { backgroundColor: COLORS.card, marginTop: -40, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: SPACING.lg, minHeight: 500, ...SHADOWS.card },
   title: { ...TYPOGRAPHY.title, fontSize: 28, marginBottom: SPACING.lg },
