@@ -44,7 +44,7 @@ export default function InviteScreen() {
   const [authCheckComplete, setAuthCheckComplete] = useState<boolean>(false);
   const [eventDetails, setEventDetails] = useState<any>(null);
 
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- SECURITY VAULT ---
   useFocusEffect(
@@ -53,7 +53,7 @@ export default function InviteScreen() {
     }, [id])
   );
 
-  const checkAuthAndVerifyHost = async () => {
+ const checkAuthAndVerifyHost = async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -77,13 +77,24 @@ export default function InviteScreen() {
       });
       
       setEventDetails(response.data);
-      const ownerId = response.data.host?._id || response.data.user;
       
-      if (currentId !== ownerId) {
+      // --- THE DELEGATE FIX ---
+      const ownerId = response.data.host?._id || response.data.user;
+      const isPrimaryHost = currentId === ownerId;
+
+      // Safely parse the delegates array to check if the Uncle's ID is in it
+      const isDelegate = response.data.delegates && response.data.delegates.some((delegate: any) => {
+        const delegateId = typeof delegate === 'string' ? delegate : delegate._id;
+        return delegateId === currentId;
+      });
+
+      // If they are neither the creator NOR a delegate, kick them out.
+      if (!isPrimaryHost && !isDelegate) {
         Alert.alert('Unauthorized', 'You do not have permission to invite guests.');
         router.replace(`/event/${id}`); 
         return;
       }
+      // ------------------------
 
       await fetchExistingGuests(token);
       setAuthCheckComplete(true);

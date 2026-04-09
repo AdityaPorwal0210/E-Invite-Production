@@ -73,11 +73,17 @@ export default function EditEventScreen() {
 
       const event = response.data;
 
-      // 4. THE VAULT: Verify Host Status
+// 4. THE VAULT: Verify Host & Delegate Status
       const ownerId = event.host?._id || event.user;
+      const isPrimaryHost = currentId === ownerId;
       
-      if (currentId !== ownerId) {
-        console.log('🛑 UNAUTHORIZED: User is not the host of this event.');
+      const isDelegate = event.delegates && event.delegates.some((delegate: any) => {
+        const delegateId = typeof delegate === 'string' ? delegate : delegate._id;
+        return delegateId === currentId;
+      });
+
+      if (!isPrimaryHost && !isDelegate) {
+        console.log('🛑 UNAUTHORIZED: User is not the host or delegate.');
         Alert.alert('Unauthorized', 'You do not have permission to edit this event.');
         
         // Send them to the safe view-only page
