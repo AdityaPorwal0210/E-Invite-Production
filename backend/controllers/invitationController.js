@@ -6,6 +6,7 @@ const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinar
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 const Expo = require('expo-server-sdk').default;
+const sendPushNotification = require('../utils/pushNotification');
 
 // Initialize Expo SDK
 const expo = new Expo();
