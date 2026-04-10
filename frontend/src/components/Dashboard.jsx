@@ -1,9 +1,11 @@
 import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios'; // ✅ IMPORTED AXIOS
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
-import PhoneSyncBanner from './PhoneSyncBanner'; // <-- IMPORT ADDED HERE
-import EventCardSkeleton from '../components/EventCardSkeleton';
+import PhoneSyncBanner from './PhoneSyncBanner';
+import EventCardSkeleton from './EventCardSkeleton';
+
 const Dashboard = () => {
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -13,26 +15,25 @@ const Dashboard = () => {
   const { logout, user, notificationCounts } = useContext(AuthContext);
   const navigate = useNavigate();
 
+  // ✅ WEB-SAFE DELETE ACCOUNT FUNCTION
   const handleDeleteAccount = async () => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete your account? This will permanently delete all your events and remove you from other events. This action cannot be undone."
-    );
+    const isConfirmed = window.confirm("Are you absolutely sure you want to delete your account? This action cannot be undone.");
     
-    if (!confirmDelete) return;
-    
-    const confirmAgain = window.confirm(
-      "WARNING: All your hosted events will be deleted. Are you absolutely sure?"
-    );
-    
-    if (!confirmAgain) return;
-    
+    if (!isConfirmed) return;
+
     try {
-      await api.delete('/users/profile');
-      logout();
-      navigate('/login');
-    } catch (err) {
-      console.error('Failed to delete account:', err);
-      alert(err.response?.data?.message || 'Failed to delete account');
+      const token = localStorage.getItem('authToken'); 
+      
+      await axios.delete(`https://invitoinbox.onrender.com/api/users/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      localStorage.clear();
+      window.location.href = '/'; 
+      
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      alert(error.response?.data?.message || "Failed to delete account. Please try again.");
     }
   };
 
@@ -40,7 +41,6 @@ const Dashboard = () => {
     const fetchInvitations = async () => {
       try {
         const response = await api.get('/invitations');
-        // API returns { count, invitations } - extract the array
         setInvitations(response.data.invitations || []);
         setLoading(false);
       } catch (err) {
@@ -62,7 +62,6 @@ const Dashboard = () => {
     });
   };
 
-  // Filter events into upcoming and past
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -71,15 +70,18 @@ const Dashboard = () => {
 
   const displayedEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents;
 
-if (loading) {
-  return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background, padding: SPACING.screenPadding }}>
-      <EventCardSkeleton />
-      <EventCardSkeleton />
-      <EventCardSkeleton />
-    </View>
-  );
-}
+  // ✅ FIXED: REMOVED MOBILE <View> TAGS
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <EventCardSkeleton />
+          <EventCardSkeleton />
+          <EventCardSkeleton />
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -93,21 +95,20 @@ if (loading) {
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         
-        {/* ADDED PHONE SYNC BANNER HERE */}
         <PhoneSyncBanner />
 
         {/* Header with Create Event and Logout */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
           <h1 className="text-3xl font-extrabold text-gray-900">
             Event Dashboard
           </h1>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <button
               onClick={() => navigate('/inbox')}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium relative"
             >
               Inbox
-              {notificationCounts.pendingInvites > 0 && (
+              {notificationCounts?.pendingInvites > 0 && (
                 <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                   {notificationCounts.pendingInvites}
                 </span>
@@ -124,7 +125,7 @@ if (loading) {
               className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm font-medium relative"
             >
               Groups
-              {notificationCounts.pendingGroupRequests > 0 && (
+              {notificationCounts?.pendingGroupRequests > 0 && (
                 <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                   {notificationCounts.pendingGroupRequests}
                 </span>
@@ -155,7 +156,7 @@ if (loading) {
             </button>
             <button
               onClick={logout}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm font-medium"
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
             >
               Logout
             </button>
@@ -245,6 +246,21 @@ if (loading) {
             ))}
           </div>
         )}
+
+        {/* ✅ FIXED: WIRED UP DELETE ACCOUNT BUTTON */}
+        <div className="mt-16 pt-8 border-t border-red-200">
+          <h3 className="text-lg font-bold text-red-600 mb-2">Danger Zone</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Once you delete your account, there is no going back. Please be certain.
+          </p>
+          <button 
+            onClick={handleDeleteAccount}
+            className="px-4 py-2 bg-red-100 text-red-700 font-bold rounded-md hover:bg-red-200 transition-colors"
+          >
+            Delete Account
+          </button>
+        </div>
+
       </div>
     </div>
   );
