@@ -5,7 +5,7 @@ const Invitation = require("../models/Invitation");
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinary");
-const { sendPushNotification } = require('../utils/pushHelper');
+const sendPushNotification = require('../utils/pushNotification');
 // Create a new group
 const createGroup = async (req, res) => {
   try {

@@ -1,4 +1,5 @@
 const Invitation = require("../models/Invitation");
+const sendPushNotification = require('../utils/pushNotification');
 const Group = require("../models/Group");
 const User = require("../models/User");
 const ReceivedInvitation = require("../models/ReceivedInvitation");
@@ -6,50 +7,9 @@ const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinar
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
 const Expo = require('expo-server-sdk').default;
-const sendPushNotification = require('../utils/pushNotification');
 
 // Initialize Expo SDK
 const expo = new Expo();
-
-// Helper function to send push notification
-const sendPushNotification = async (expoPushToken, title, body, data = {}) => {
-  try {
-    // Validate the token
-    if (!Expo.isExpoPushToken(expoPushToken)) {
-      console.error(`Invalid Expo push token: ${expoPushToken}`);
-      return false;
-    }
-
-    // Construct the message
-    const message = {
-      to: expoPushToken,
-      sound: 'default',
-      title: title,
-      body: body,
-      data: data,
-    };
-
-    // Chunk messages (Expo allows max 100 per chunk)
-    const chunks = expo.chunkPushNotifications([message]);
-
-    // Send each chunk
-    for (const chunk of chunks) {
-      try {
-        const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        console.log(`✅ Push notification sent successfully to ${expoPushToken}`);
-        console.log(`📬 Ticket details:`, JSON.stringify(ticketChunk));
-        return true;
-      } catch (error) {
-        console.error(`❌ Error sending push notification to ${expoPushToken}:`, error);
-        return false;
-      }
-    }
-    return true;
-  } catch (error) {
-    console.error(`❌ Push notification error for ${expoPushToken}:`, error);
-    return false;
-  }
-};
 
 // Helper to generate URLs for email templates
 const getEmailUrls = (invitationId) => {
