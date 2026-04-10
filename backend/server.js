@@ -5,7 +5,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
-
+const startReminderCron = require('./utils/reminderCron');
 // 1. Import Routes
 const userRoutes = require('./routes/userRoutes');
 const invitationRoutes = require('./routes/invitationRoutes');
@@ -80,7 +80,13 @@ io.on('connection', (socket) => {
 
 // 5. Dynamic Port Assignment
 const PORT = process.env.PORT || 5005;
+
+// 🚨 THE IGNITION SWITCH: Start the background worker
+startReminderCron();
+
+// Fallback Error Handler
 app.use(errorHandler);
+
 server.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
