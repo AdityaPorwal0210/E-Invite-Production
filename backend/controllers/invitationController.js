@@ -521,7 +521,10 @@ const updateInvitation = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    if (invitation.user.toString() !== req.user.id) {
+    // --- CO-HOST FIX ---
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    if (!isPrimaryHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to update this invitation" });
     }
 
@@ -534,7 +537,6 @@ const updateInvitation = async (req, res) => {
     if (googleMapsLink !== undefined) invitation.googleMapsLink = googleMapsLink || null;
 
     // --- Process Array of Attachments ---
-    // Because the route uses upload.array(), files arrive in req.files
     if (req.files && req.files.length > 0) {
       console.log(`🖼️ Update Mode: Processing ${req.files.length} uploaded files...`);
       
@@ -550,15 +552,11 @@ const updateInvitation = async (req, res) => {
           });
         }
         
-        // Clean up the local temp file after upload
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
         }
       }
 
-      // Append new attachments to any existing ones in the database
-      // Or overwrite them completely depending on your desired logic.
-      // This appends them:
       if (!invitation.attachments) {
         invitation.attachments = [];
       }
@@ -592,7 +590,6 @@ const updateInvitation = async (req, res) => {
     res.status(200).json(invitation);
   } catch (error) {
     console.error("Update Error:", error);
-    // Safety cleanup: If the controller crashes, delete any local temp files
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
@@ -700,7 +697,10 @@ const revokeInvite = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    if (invitation.user.toString() !== req.user.id) {
+    // --- CO-HOST FIX ---
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    if (!isPrimaryHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to revoke invitations" });
     }
 
@@ -1151,7 +1151,10 @@ const getEventGuestList = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    if (invitation.user.toString() !== req.user.id) {
+    // --- CO-HOST FIX ---
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    if (!isPrimaryHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to view this guest list" });
     }
 
@@ -1179,7 +1182,10 @@ const removeGuest = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    if (invitation.user.toString() !== req.user.id) {
+    // --- CO-HOST FIX ---
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    if (!isPrimaryHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to remove guests" });
     }
 
@@ -1198,7 +1204,6 @@ const removeGuest = async (req, res) => {
     res.status(500).json({ message: "Error removing guest" });
   }
 };
-
 const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
