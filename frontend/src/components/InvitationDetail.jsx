@@ -131,9 +131,11 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
   }, [invitation?.isRead, isOwner, user, id]);
 
   // WebSocket connection for real-time RSVP updates (only for event owners)
+// WebSocket connection for real-time RSVP updates (only for event owners)
   useEffect(() => {
-    // Only connect if user is the owner and we have the invitation loaded
-    if (!isOwner || !invitation) {
+    // Only connect if user is the owner. 
+    // Since isOwner is derived from the invitation, we don't need invitation in the dependencies.
+    if (!isOwner) {
       return;
     }
 
@@ -173,7 +175,8 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
       socket.disconnect();
       console.log('🔌 WebSocket disconnected');
     };
-  }, [id, isOwner, invitation]);
+  // CRITICAL FIX: Removed 'invitation' from this array so it stops flapping on every update
+  }, [id, isOwner]);
 
   // ============ ALL FUNCTIONS AFTER USE EFFECT ============
   
