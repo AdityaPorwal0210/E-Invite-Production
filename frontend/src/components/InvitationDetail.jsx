@@ -368,22 +368,18 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
     return emailRegex.test(str);
   };
 
-  const handleKeyDown = (e) => {
+const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const input = userSearch.trim();
-      if (!input) return;
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const phoneRegex = /^\+?[\d\s-]{10,}$/; // Accepts 10+ digits, optional + or spaces
 
-      // Check if it's a valid email or phone
-      const isEmail = isValidEmail(input);
-      const isPhone = isValidPhone(input);
-
-      if ((isEmail || isPhone) && !selectedUsers.some(u => u._id === input)) {
-        if (isEmail) {
-          addUser({ _id: input, name: input, email: input, type: 'email' });
-        } else {
-          addUser({ _id: input, name: input, phone: input, type: 'phone' });
-        }
+      if ((emailRegex.test(input) || phoneRegex.test(input)) && !selectedUsers.some(u => u._id === input)) {
+        const type = phoneRegex.test(input) && !input.includes('@') ? 'phone' : 'email';
+        addUser({ _id: input, name: input, [type]: input, type });
+      } else if (input) {
+        toast.error("Please enter a valid email or 10-digit phone number.");
       }
     }
   };
@@ -391,30 +387,19 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
   const handleInvite = async () => {
     let finalUsers = [...selectedUsers];
     const input = userSearch.trim();
-    
-    // Handle input from text field - check if it's email or phone
-    if (input) {
-      const isEmail = isValidEmail(input);
-      const isPhone = isValidPhone(input);
-      
-      if ((isEmail || isPhone) && !finalUsers.some(u => u._id === input)) {
-        if (isEmail) {
-          finalUsers.push({ _id: input, name: input, email: input, type: 'email' });
-        } else {
-          finalUsers.push({ _id: input, name: input, phone: input, type: 'phone' });
-        }
-      }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^\+?[\d\s-]{10,}$/;
+
+    // Catch anything left in the input box when they hit send
+    if ((emailRegex.test(input) || phoneRegex.test(input)) && !finalUsers.some(u => u._id === input)) {
+      const type = phoneRegex.test(input) && !input.includes('@') ? 'phone' : 'email';
+      finalUsers.push({ _id: input, name: input, [type]: input, type });
     }
     
     if (selectedGroups.length === 0 && finalUsers.length === 0) return;
 
     setInviting(true);
     try {
-      // Separate emails and phones
-      const emailUsers = finalUsers.filter(u => u.type === 'email');
-      const phoneUsers = finalUsers.filter(u => u.type === 'phone');
-
-      // Build salutations map from selectedUsers (user-level salutations)
       const salutationsMap = {};
       finalUsers.forEach(u => {
         if (u.salutation) {
@@ -422,22 +407,36 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
         }
       });
 
-      // Build newPhones array in the format: [{ phone: "number", name: "number" }]
-      const newPhones = phoneUsers.map(u => ({
-        phone: u.phone || u._id,
-        name: u.name || u._id
-      }));
+      // SORT THE PAYLOAD: Emails go to emails, Phones go to phones
+      const newEmails = [];
+      const newPhones = [];
+      const newUsers = []; // Existing registered users from the dropdown search
+
+      finalUsers.forEach(u => {
+        if (u.type === 'phone' || (phoneRegex.test(u._id) && !u._id.includes('@'))) {
+          // Backend expects an array of objects for phones
+          newPhones.push({ phone: u._id, name: "Guest" });
+        } else if (u.type === 'email' || emailRegex.test(u._id)) {
+          newEmails.push(u._id);
+        } else {
+          // Must be a MongoDB ObjectId from the user search dropdown
+          newUsers.push(u._id);
+        }
+      });
 
       const payload = {
         newGroups: selectedGroups,
-        newUsers: emailUsers.map(u => u._id),
-        newPhones: newPhones,
+        newUsers: newUsers,
+        newEmails: newEmails,
+        newPhones: newPhones, // WIRE THE PHONES TO THE BACKEND
         salutations: salutationsMap
       };
+      
       const response = await api.post(`/invitations/${id}/share`, payload);
-      toast.success('Invitation sent successfully!');
+      toast.success('Invitations sent successfully!');
       setInviteSuccess(response.data.message);
       setInvitation(response.data.invitation);
+      
       setTimeout(() => {
         setShowInviteModal(false);
         setSelectedGroups([]);
@@ -447,12 +446,11 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
         setInviteSuccess('');
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send invitations');
+      toast.error(err.response?.data?.message || 'Failed to send invitations');
     } finally {
       setInviting(false);
     }
   };
-
   const formatVideoUrl = (url) => {
     if (!url) return null;
     const cleanUrl = url.trim();
