@@ -554,9 +554,38 @@ export default function EventDetailsHub() {
           </TouchableOpacity>
         )}
 
-        <View style={styles.detailsCard}>
-          <Text style={styles.title}>{invitation.title}</Text>
+          <View style={styles.detailsCard}>
+            <Text style={styles.title}>{invitation.title}</Text>
           
+          {/* Host Section */}
+          <View style={styles.infoRow}>
+            <Text style={styles.icon}>👤</Text>
+            <Text style={styles.infoText}>
+              <Text style={{ fontWeight: '600' }}>Hosted by </Text>
+              {invitation.host?.name || 'Unknown'}
+            </Text>
+          </View>
+
+          {/* Co-Hosts Section - conditionally rendered */}
+          {invitation.delegates && invitation.delegates.length > 0 && (
+            <View style={styles.infoRow}>
+              <Text style={styles.icon}>👑</Text>
+              <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+                <Text style={{ fontWeight: '600', marginRight: 4 }}>Co-Hosts: </Text>
+                {invitation.delegates.map((delegate: any, index: number) => {
+                  const delegateName = delegate?.name || 'Unknown';
+                  const delegateInitial = delegateName.charAt(0).toUpperCase();
+                  return (
+                    <View key={delegate._id || delegate || index} style={styles.coHostBadge}>
+                      <View style={styles.coHostInitial}><Text style={styles.coHostInitialText}>{delegateInitial}</Text></View>
+                      <Text style={styles.coHostName}>{delegateName}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           <View style={styles.infoRow}>
             <Text style={styles.icon}>📅</Text>
             <Text style={styles.infoText}>{new Date(invitation.eventDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
@@ -939,4 +968,10 @@ const styles = StyleSheet.create({
   groupItemCount: { ...TYPOGRAPHY.small, color: COLORS.textMuted },
   blastButton: { backgroundColor: '#8B5CF6', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   blastButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+  
+  // --- CO-HOST BADGE STYLES ---
+  coHostBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 16, marginRight: 6, marginBottom: 4 },
+  coHostInitial: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#8B5CF6', justifyContent: 'center', alignItems: 'center', marginRight: 4 },
+  coHostInitialText: { color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' },
+  coHostName: { fontSize: 12, color: '#6B21A8', fontWeight: '500' },
 });
