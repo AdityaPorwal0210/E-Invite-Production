@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
+import ManageCoHosts from './ManageCoHosts';
 
 // Connect to the backend socket server
 const SOCKET_URL = 'https://invitoinbox.onrender.com';
@@ -42,6 +43,7 @@ const InvitationDetail = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showCoHostModal, setShowCoHostModal] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
     title: '',
@@ -574,11 +576,12 @@ const InvitationDetail = () => {
           <div className="flex justify-between items-start mb-6">
             <h1 className="text-3xl font-bold text-gray-900">{invitation.title}</h1>
             {isOwner && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={openEditModal} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">Edit</button>
                 <button onClick={handleDelete} disabled={isDeleting} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm disabled:opacity-50">{isDeleting ? 'Deleting...' : 'Delete'}</button>
                 <button onClick={() => setShowInviteModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm">+ Invite More</button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
+                <button onClick={() => setShowCoHostModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">👑 Co-Hosts</button>
                 <span className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">Your Event</span>
               </div>
             )}
@@ -673,6 +676,33 @@ const InvitationDetail = () => {
                     {group.name || group}
                     {isOwner && <button onClick={() => handleRevoke('groupId', group._id)} className="text-purple-400 hover:text-purple-900">✕</button>}
                   </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Display existing Co-Hosts */}
+          {invitation.delegates && invitation.delegates.length > 0 && (
+            <div className="mb-6 border-t pt-6">
+              <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                👑 Co-Hosts
+                <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
+                  {invitation.delegates.length}
+                </span>
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {invitation.delegates.map((delegate) => (
+                  <div key={delegate._id || delegate} className="px-3 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg flex items-center gap-2">
+                    <div className="bg-purple-200 p-1.5 rounded-full">
+                      <span className="text-purple-700 font-semibold text-xs">
+                        {(delegate.name || 'U').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-gray-900">{delegate.name || 'Unknown'}</span>
+                      <span className="text-xs text-gray-500">{delegate.email || ''}</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -790,6 +820,16 @@ const InvitationDetail = () => {
           </div>
         </div>
       )}
+
+      {/* Co-Host Management Modal */}
+      <ManageCoHosts 
+        invitation={invitation}
+        onDelegatesUpdated={(delegates) => {
+          setInvitation(prev => ({ ...prev, delegates }));
+        }}
+        showCoHostModal={showCoHostModal}
+        setShowCoHostModal={setShowCoHostModal}
+      />
     </div>
   );
 };
