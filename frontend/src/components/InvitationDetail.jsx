@@ -66,9 +66,21 @@ const InvitationDetail = () => {
     return value.toString();
   };
 
-  const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : null;
+const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : null;
   const hostId = invitation ? (getStringId(invitation?.host?._id) || getStringId(invitation?.host) || getStringId(invitation?.user)) : null;
-  const isOwner = Boolean(currentUserId && hostId && currentUserId === hostId);
+  
+  // 1. Are they the primary creator?
+  const isPrimaryHost = Boolean(currentUserId && hostId && currentUserId === hostId);
+  
+  // 2. Are they in the delegates (co-hosts) array?
+  const isDelegate = Boolean(
+    currentUserId && 
+    invitation?.delegates && 
+    invitation.delegates.some(delegate => getStringId(delegate?._id || delegate) === currentUserId)
+  );
+
+  // 3. If they are EITHER, they get the admin dashboard.
+  const isOwner = isPrimaryHost || isDelegate;
   const guestList = invitation?.guestList || [];
   const pendingGuests = invitation?.pendingGuestEmails || [];
 
