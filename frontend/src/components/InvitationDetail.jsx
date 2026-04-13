@@ -356,27 +356,64 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
     setSelectedUsers(prev => prev.map(u => u._id === userId ? { ...u, salutation } : u));
   };
 
+  // Helper to detect if string is a valid phone number (at least 10 digits, optional +, spaces, dashes)
+  const isValidPhone = (str) => {
+    const cleaned = str.replace(/[\s\-+-]/g, '');
+    return /^\d{10,}$/.test(cleaned);
+  };
+
+  // Helper to detect if string is a valid email
+  const isValidEmail = (str) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(str);
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const email = userSearch.trim();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (emailRegex.test(email) && !selectedUsers.some(u => u._id === email)) {
-        addUser({ _id: email, name: email, email });
+      const input = userSearch.trim();
+      if (!input) return;
+
+      // Check if it's a valid email or phone
+      const isEmail = isValidEmail(input);
+      const isPhone = isValidPhone(input);
+
+      if ((isEmail || isPhone) && !selectedUsers.some(u => u._id === input)) {
+        if (isEmail) {
+          addUser({ _id: input, name: input, email: input, type: 'email' });
+        } else {
+          addUser({ _id: input, name: input, phone: input, type: 'phone' });
+        }
       }
     }
   };
 
   const handleInvite = async () => {
     let finalUsers = [...selectedUsers];
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (emailRegex.test(userSearch.trim()) && !finalUsers.some(u => u._id === userSearch.trim())) {
-      finalUsers.push({ _id: userSearch.trim(), name: userSearch.trim(), email: userSearch.trim() });
+    const input = userSearch.trim();
+    
+    // Handle input from text field - check if it's email or phone
+    if (input) {
+      const isEmail = isValidEmail(input);
+      const isPhone = isValidPhone(input);
+      
+      if ((isEmail || isPhone) && !finalUsers.some(u => u._id === input)) {
+        if (isEmail) {
+          finalUsers.push({ _id: input, name: input, email: input, type: 'email' });
+        } else {
+          finalUsers.push({ _id: input, name: input, phone: input, type: 'phone' });
+        }
+      }
     }
+    
     if (selectedGroups.length === 0 && finalUsers.length === 0) return;
 
     setInviting(true);
     try {
+      // Separate emails and phones
+      const emailUsers = finalUsers.filter(u => u.type === 'email');
+      const phoneUsers = finalUsers.filter(u => u.type === 'phone');
+
       // Build salutations map from selectedUsers (user-level salutations)
       const salutationsMap = {};
       finalUsers.forEach(u => {
@@ -385,9 +422,16 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
         }
       });
 
+      // Build newPhones array in the format: [{ phone: "number", name: "number" }]
+      const newPhones = phoneUsers.map(u => ({
+        phone: u.phone || u._id,
+        name: u.name || u._id
+      }));
+
       const payload = {
         newGroups: selectedGroups,
-        newUsers: finalUsers.map(u => u._id),
+        newUsers: emailUsers.map(u => u._id),
+        newPhones: newPhones,
         salutations: salutationsMap
       };
       const response = await api.post(`/invitations/${id}/share`, payload);
