@@ -501,7 +501,19 @@ const handleKeyDown = (e) => {
       setIsDeleting(false);
     }
   };
-
+const handleWhatsAppShare = () => {
+    // Dynamically grab the current URL of the event
+    const eventUrl = window.location.href; 
+    
+    // Format the message
+    const message = `Hey! I'm hosting "${invitation.title}" on ${formatDate(invitation.eventDate)} at ${invitation.location}. \n\nClick here to view details and RSVP: ${eventUrl}`;
+    
+    // Create the WhatsApp universal link
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    
+    // Open in a new tab (this triggers WhatsApp Web on desktop, or the WhatsApp app on mobile)
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+  };
   const openEditModal = () => {
     setEditForm({
       title: invitation.title || '',
@@ -637,6 +649,9 @@ const handleKeyDown = (e) => {
                 <button onClick={openEditModal} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">Edit</button>
                 <button onClick={handleDelete} disabled={isDeleting} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm disabled:opacity-50">{isDeleting ? 'Deleting...' : 'Delete'}</button>
                 <button onClick={() => setShowInviteModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm">+ Invite More</button>
+                <button onClick={handleWhatsAppShare} className="px-4 py-2 bg-[#25D366] text-white rounded-md hover:bg-[#128C7E] text-sm font-medium shadow-sm flex items-center gap-2">
+      💬 Share via WhatsApp
+    </button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
                 <button onClick={() => setShowCoHostModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">👑 Co-Hosts</button>
                 <span className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">Your Event</span>
