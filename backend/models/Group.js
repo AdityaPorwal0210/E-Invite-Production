@@ -51,6 +51,14 @@ const groupSchema = new mongoose.Schema({
     type: String,
     enum: ['everyone', 'admins'],
     default: 'everyone' // Defaults to open so you don't break existing groups
+  },
+  allowGuestMessaging: {
+    type: Boolean,
+    default: true
+  },
+  allowGuestsToInvite: {
+    type: Boolean,
+    default: true
   }
 }, { timestamps: true });
 

@@ -173,7 +173,7 @@ const requestToJoin = async (req, res) => {
 const updateGroupSettings = async (req, res) => {
   try {
     const { id } = req.params;
-    const { joinSetting } = req.body;
+    const { joinSetting, allowGuestMessaging, allowGuestsToInvite } = req.body;
 
     const group = await Group.findById(id);
 
@@ -189,15 +189,31 @@ const updateGroupSettings = async (req, res) => {
       return res.status(403).json({ message: "Only group admins can update settings" });
     }
 
-    // Validate joinSetting
-    if (!['invite_only', 'request_to_join'].includes(joinSetting)) {
-      return res.status(400).json({ message: "Invalid join setting" });
+    // Validate and update joinSetting if provided
+    if (joinSetting !== undefined) {
+      if (!['invite_only', 'request_to_join'].includes(joinSetting)) {
+        return res.status(400).json({ message: "Invalid join setting" });
+      }
+      group.joinSetting = joinSetting;
     }
 
-    group.joinSetting = joinSetting;
+    // Update allowGuestMessaging if provided
+    if (allowGuestMessaging !== undefined) {
+      group.allowGuestMessaging = Boolean(allowGuestMessaging);
+    }
+
+    // Update allowGuestsToInvite if provided
+    if (allowGuestsToInvite !== undefined) {
+      group.allowGuestsToInvite = Boolean(allowGuestsToInvite);
+    }
+
     await group.save();
 
-    res.status(200).json({ joinSetting: group.joinSetting });
+    res.status(200).json({ 
+      joinSetting: group.joinSetting,
+      allowGuestMessaging: group.allowGuestMessaging,
+      allowGuestsToInvite: group.allowGuestsToInvite
+    });
   } catch (error) {
     console.error("Update Settings Error:", error);
     res.status(500).json({ message: "Error updating group settings" });

@@ -165,6 +165,32 @@ const Groups = () => {
     }
   };
 
+  const handleGuestMessagingToggle = async (enabled) => {
+    try {
+      await api.put(`/groups/${selectedGroup._id}/settings`, { allowGuestMessaging: enabled });
+      // Refresh group data
+      const response = await api.get(`/groups/${selectedGroup._id}`);
+      setSelectedGroup(response.data);
+      setGroups(prev => prev.map(g => g._id === selectedGroup._id ? response.data : g));
+      toast.success(enabled ? 'Guest messaging enabled' : 'Guest messaging disabled');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update settings');
+    }
+  };
+
+  const handleGuestsToInviteToggle = async (enabled) => {
+    try {
+      await api.put(`/groups/${selectedGroup._id}/settings`, { allowGuestsToInvite: enabled });
+      // Refresh group data
+      const response = await api.get(`/groups/${selectedGroup._id}`);
+      setSelectedGroup(response.data);
+      setGroups(prev => prev.map(g => g._id === selectedGroup._id ? response.data : g));
+      toast.success(enabled ? 'Guests can now invite others' : 'Guests cannot invite others');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update settings');
+    }
+  };
+
   const handleApproveRequest = async (userId) => {
     try {
       await api.put(`/groups/${selectedGroup._id}/requests/handle`, { userId, status: 'approve' });
@@ -367,7 +393,7 @@ const Groups = () => {
                     </button>
                   </div>
                   
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-3">
                     <label className="text-sm text-gray-600">Join Setting:</label>
                     <select
                       value={selectedGroup.joinSetting || 'invite_only'}
@@ -377,6 +403,53 @@ const Groups = () => {
                       <option value="invite_only">Invite Only</option>
                       <option value="request_to_join">Request to Join</option>
                     </select>
+                  </div>
+
+                  {/* Group Settings Toggles */}
+                  <div className="border-t border-gray-200 pt-3 mt-3">
+                    <h4 className="text-xs font-medium text-gray-500 uppercase mb-3">Group Settings</h4>
+                    
+                    {/* Allow Guest Messaging Toggle */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm text-gray-700">Allow Guest Messaging</p>
+                        <p className="text-xs text-gray-500">Members can send messages to group</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleGuestMessagingToggle(!selectedGroup.allowGuestMessaging)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          selectedGroup.allowGuestMessaging ? 'bg-indigo-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            selectedGroup.allowGuestMessaging ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Allow Guests to Invite Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-700">Allow Guests to Invite</p>
+                        <p className="text-xs text-gray-500">Members can invite others to group</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleGuestsToInviteToggle(!selectedGroup.allowGuestsToInvite)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          selectedGroup.allowGuestsToInvite ? 'bg-indigo-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            selectedGroup.allowGuestsToInvite ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
