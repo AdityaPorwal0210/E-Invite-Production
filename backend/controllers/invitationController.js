@@ -339,6 +339,7 @@ const createInvitation = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
 const getInvitations = async (req, res) => {
   try {
     // Find events where the user is the main Host OR is in the Delegates array
@@ -351,7 +352,8 @@ const getInvitations = async (req, res) => {
       .sort({ createdAt: -1 })
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
-      .populate('invitedUsers', 'name email');
+      .populate('invitedUsers', 'name email')
+      .populate('delegates', 'name email profileImage'); // <--- FULL FIX HERE
 
     res.status(200).json({ count: invitations.length, invitations });
   } catch (error) {
@@ -367,7 +369,8 @@ const getInvitationById = async (req, res) => {
     
     const invitation = await Invitation.findById(id)
       .populate('host', 'name email')
-      .populate('sharedGroups', 'name');
+      .populate('sharedGroups', 'name')
+      .populate('delegates', 'name email profileImage'); // <--- YOU GOT THIS ONE
 
     if (!invitation) {
       return res.status(404).json({ message: "Invitation not found" });
@@ -1212,7 +1215,6 @@ const markAsRead = async (req, res) => {
   }
 };
 
-
 const updateDelegates = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1231,6 +1233,9 @@ const updateDelegates = async (req, res) => {
 
     invitation.delegates = delegates;
     await invitation.save();
+
+    // === THE FIX: POPULATE BEFORE SENDING THE RESPONSE ===
+    await invitation.populate('delegates', 'name email profileImage');
 
     res.status(200).json({ message: "Co-hosts updated successfully", delegates: invitation.delegates });
   } catch (error) {
@@ -1259,5 +1264,4 @@ module.exports = {
   removeGuest,
   markAsRead,
   updateDelegates
-  
 };
