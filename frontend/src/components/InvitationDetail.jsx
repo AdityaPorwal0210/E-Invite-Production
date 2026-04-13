@@ -4,6 +4,14 @@ import ReactPlayer from 'react-player';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import io from 'socket.io-client';
+
+// Connect to the backend socket server
+const SOCKET_URL = 'https://invitoinbox.onrender.com';
+const socket = io(SOCKET_URL, {
+  transports: ['websocket', 'polling'],
+  autoConnect: false
+});
 
 const InvitationDetail = () => {
   // ============ HOOKS FIRST ============
@@ -107,6 +115,51 @@ const InvitationDetail = () => {
         .catch(err => console.error('Failed to mark as read:', err));
     }
   }, [invitation?.isRead, isOwner, user, id]);
+
+  // WebSocket connection for real-time RSVP updates (only for event owners)
+  useEffect(() => {
+    // Only connect if user is the owner and we have the invitation loaded
+    if (!isOwner || !invitation) {
+      return;
+    }
+
+    // Connect to socket
+    socket.connect();
+    
+    console.log('🔌 WebSocket connecting for real-time RSVP updates...');
+
+    // Listen for RSVP updates from the backend
+    socket.on('rsvp-updated', (payload) => {
+      console.log('📡 Real-time RSVP update received:', payload);
+      
+      // Check if this update is for this event
+      if (payload.eventId === id) {
+        // Refresh the invitation data to get updated guest list
+        fetchInvitation();
+        
+        // Show a toast notification
+        toast.success('A guest just RSVP\'d! Guest list updated.');
+      }
+    });
+
+    // Listen for connection events for debugging
+    socket.on('connect', () => {
+      console.log('✅ WebSocket connected:', socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.log('❌ WebSocket connection error:', err.message);
+    });
+
+    // Cleanup: disconnect when component unmounts
+    return () => {
+      socket.off('rsvp-updated');
+      socket.off('connect');
+      socket.off('connect_error');
+      socket.disconnect();
+      console.log('🔌 WebSocket disconnected');
+    };
+  }, [id, isOwner, invitation]);
 
   // ============ ALL FUNCTIONS AFTER USE EFFECT ============
   const fetchInvitation = async () => {
