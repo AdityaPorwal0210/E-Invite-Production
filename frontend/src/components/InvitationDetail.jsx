@@ -134,8 +134,8 @@ const InvitationDetail = () => {
       
       // Check if this update is for this event
       if (payload.eventId === id) {
-        // Refresh the invitation data to get updated guest list
-        fetchInvitation();
+        // Use background refresh - no loading flicker!
+        refreshInvitationData();
         
         // Show a toast notification
         toast.success('A guest just RSVP\'d! Guest list updated.');
@@ -162,31 +162,62 @@ const InvitationDetail = () => {
   }, [id, isOwner, invitation]);
 
   // ============ ALL FUNCTIONS AFTER USE EFFECT ============
-  const fetchInvitation = async () => {
+  
+  // Main fetch function used for initial load (sets loading state)
+  const fetchInvitation = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    
     try {
+      // Use the user from component scope (from context)
       const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
       const response = await api.get(endpoint);
       setInvitation(response.data);
       if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
       if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-      setLoading(false);
+      if (!silent) setLoading(false);
     } catch (err) {
+      console.error('fetchInvitation error:', err);
+      // Only show error if it's a fresh load (not silent refresh)
+      if (!silent && !err.response) {
+        setError('Failed to load event. Please refresh the page.');
+      }
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Lightweight background refresh for socket updates - doesn't set loading
+  const refreshInvitationData = async () => {
+    console.log('🔄 Background refresh triggered...');
+    
+    // Guard: ensure we still have a valid user
+    if (!user) {
+      console.log('⚠️ No user in context, skipping refresh');
+      return;
+    }
+    
+    try {
+      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
+      const response = await api.get(endpoint);
+      
+      // Directly update state without triggering loading flicker
+      setInvitation(response.data);
+      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
+      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
+      
+      console.log('✅ Guest list updated silently');
+    } catch (err) {
+      console.error('❌ Background refresh failed:', err.message);
+      // Fallback: try a full fetch but without showing loading
       if (user) {
         try {
-          const receivedRes = await api.get('/invitations/received');
-          const found = receivedRes.data.invitations?.find(inv => inv._id === id);
-          if (found) {
-            setInvitation(found);
-          } else {
-            setError('Event not found or access denied.');
-          }
-        } catch (e) {
-          setError('Event not found or access denied.');
+          const response = await api.get(`/invitations/${id}`);
+          setInvitation(response.data);
+        } catch (fallbackErr) {
+          console.error('❌ Fallback also failed:', fallbackErr.message);
         }
-      } else {
-        setError('Event not found.');
       }
-      setLoading(false);
     }
   };
 
