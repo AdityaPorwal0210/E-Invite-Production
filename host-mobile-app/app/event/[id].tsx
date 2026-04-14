@@ -2,8 +2,10 @@ import Toast from 'react-native-toast-message';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, 
-  StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal, Share 
+  StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal, Share
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
@@ -340,6 +342,92 @@ export default function EventDetailsHub() {
     }
   };
 
+  // --- WHATSAPP SHARE ---
+  const handleWhatsAppShare = async () => {
+    const eventLink = `https://invitoinnbox.vercel.app/invitation/${id}`;
+    const message = `You are invited to "${invitation?.title}"!\n\n📅 Date: ${new Date(invitation?.eventDate).toLocaleDateString()}\n📍 Location: ${invitation?.location || 'TBD'}\n\nClick here to view details and RSVP: ${eventLink}`;
+    
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    
+    try {
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        Alert.alert('WhatsApp Not Installed', 'WhatsApp is not installed on your device. Please install WhatsApp to share directly.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to open WhatsApp');
+    }
+  };
+
+  // --- EXPORT GUEST LIST TO CSV ---
+  const exportGuestList = async () => {
+    try {
+      // Get the guest list to export (filteredGuests if search is active, otherwise all guests)
+      const guestListToExport = searchQuery.trim() ? filteredGuests : guests;
+      
+      if (guestListToExport.length === 0) {
+        Alert.alert('No Guests', 'There are no guests to export.');
+        return;
+      }
+
+      // Helper to escape CSV values (wrap in quotes if contains comma, quote, or newline)
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        const stringValue = String(str);
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+          return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+      };
+
+      // Create CSV headers
+      const headers = ['Name', 'Contact', 'RSVP Status'];
+      
+      // Map guests to CSV rows
+      const rows = guestListToExport.map((guest: any) => {
+        const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
+        const guestEmail = guest.recipient?.email || '';
+        const guestPhone = guest.recipient?.phone || '';
+        const contact = guestPhone ? `${guestEmail} / ${guestPhone}` : guestEmail;
+        
+        let status = 'Pending';
+        if (guest.rsvpStatus === 'accepted') status = 'Going';
+        else if (guest.rsvpStatus === 'declined') status = "Can't Go";
+        else if (guest.rsvpStatus === 'tentative') status = 'Maybe';
+        
+        return [
+          escapeCSV(guestName),
+          escapeCSV(contact),
+          escapeCSV(status)
+        ].join(',');
+      });
+
+      // Combine headers and rows
+      const csvContent = [headers.join(','), ...rows].join('\n');
+
+      // Write to file
+      const fileUri = FileSystem.documentDirectory + 'guest-list.csv';
+      // @ts-ignore - documentDirectory exists at runtime
+      await FileSystem.writeAsStringAsync(fileUri, csvContent);
+
+      // Check if sharing is available and share
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Guest List',
+        });
+      } else {
+        Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      Alert.alert('Export Failed', 'Failed to export guest list. Please try again.');
+    }
+  };
+
   const handleRSVP = async (status: string) => {
     const previousRsvp = myRsvp;
     setMyRsvp(status);
@@ -628,6 +716,14 @@ export default function EventDetailsHub() {
                       autoCorrect={false}
                     />
 
+                    {/* EXPORT CSV BUTTON */}
+                    <TouchableOpacity
+                      style={[styles.exportCSVButton, { marginBottom: SPACING.md }]}
+                      onPress={exportGuestList}
+                    >
+                      <Text style={styles.exportCSVButtonText}>📊 Export CSV</Text>
+                    </TouchableOpacity>
+
                     {/* UPDATED: Map over filteredGuests */}
                     {filteredGuests.map((guest: any, index: number) => {
                       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
@@ -683,6 +779,14 @@ export default function EventDetailsHub() {
                   onPress={handleShareEvent}
                 >
                   <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>📤 Share Forwardable Link</Text>
+                </TouchableOpacity>
+                
+                {/* WHATSAPP SHARE BUTTON */}
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: '#25D366', marginTop: SPACING.sm }]} 
+                  onPress={handleWhatsAppShare}
+                >
+                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>💬 Share via WhatsApp</Text>
                 </TouchableOpacity>
                 {/* --------------------------- */}
                 
@@ -974,4 +1078,8 @@ const styles = StyleSheet.create({
   coHostInitial: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#8B5CF6', justifyContent: 'center', alignItems: 'center', marginRight: 4 },
   coHostInitialText: { color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' },
   coHostName: { fontSize: 12, color: '#6B21A8', fontWeight: '500' },
+  
+  // --- EXPORT CSV BUTTON STYLES ---
+  exportCSVButton: { backgroundColor: '#10B981', paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  exportCSVButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
 });
