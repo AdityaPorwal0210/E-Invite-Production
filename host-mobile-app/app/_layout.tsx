@@ -65,10 +65,11 @@ export default function RootLayout() {
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken && token) {
         try {
-          await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`, 
-            { token }, 
-            { headers: { Authorization: `Bearer ${authToken}` } }
-          );
+          // CORRECT
+await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`, 
+  { expoPushToken: token }, 
+  { headers: { Authorization: `Bearer ${authToken}` } }
+);
           console.log("✅ Token saved to database");
         } catch (err) {
           console.log("❌ Failed to save token to database", err);
