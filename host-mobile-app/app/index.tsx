@@ -147,7 +147,11 @@ console.log("👉 ATTEMPTING LOGIN TO:", `${baseUrl}/users/login`);
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.forgotPasswordContainer}>
+<TouchableOpacity 
+              style={styles.forgotPasswordContainer}
+              onPress={() => router.push('/forgot-password')} // <-- ADD THIS LINE
+              activeOpacity={0.7}
+            >
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
 

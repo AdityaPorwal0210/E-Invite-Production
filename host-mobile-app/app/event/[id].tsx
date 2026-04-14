@@ -4,8 +4,10 @@ import {
   View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, 
   StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal, Share
 } from 'react-native';
-// import * as FileSystem from 'expo-file-system';
-// import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+
+import * as Haptics from 'expo-haptics';
 
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -199,6 +201,18 @@ export default function EventDetailsHub() {
       setIsHost(userIsHost); 
       // ---------------------------------------------
 
+      // --- MARK AS READ LOGIC ---
+      // If the user is NOT the host and the event is unread, tell the backend we opened it
+      if (!userIsHost && eventData.isRead === false) {
+        try {
+          await axios.put(`${API_URL}/invitations/${id}/read`, {}, { headers });
+          console.log('✅ Event marked as read');
+        } catch (readErr) {
+          console.log('⚠️ Failed to mark event as read');
+        }
+      }
+      // --------------------------
+
       if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
       if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
       if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
@@ -363,71 +377,71 @@ export default function EventDetailsHub() {
   };
 
   // --- EXPORT GUEST LIST TO CSV ---
-  // const exportGuestList = async () => {
-  //   try {
-  //     // Get the guest list to export (filteredGuests if search is active, otherwise all guests)
-  //     const guestListToExport = searchQuery.trim() ? filteredGuests : guests;
+  const exportGuestList = async () => {
+    try {
+      // Get the guest list to export (filteredGuests if search is active, otherwise all guests)
+      const guestListToExport = searchQuery.trim() ? filteredGuests : guests;
       
-  //     if (guestListToExport.length === 0) {
-  //       Alert.alert('No Guests', 'There are no guests to export.');
-  //       return;
-  //     }
+      if (guestListToExport.length === 0) {
+        Alert.alert('No Guests', 'There are no guests to export.');
+        return;
+      }
 
-  //     // Helper to escape CSV values (wrap in quotes if contains comma, quote, or newline)
-  //     const escapeCSV = (str: string) => {
-  //       if (!str) return '';
-  //       const stringValue = String(str);
-  //       if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-  //         return `"${stringValue.replace(/"/g, '""')}"`;
-  //       }
-  //       return stringValue;
-  //     };
+      // Helper to escape CSV values (wrap in quotes if contains comma, quote, or newline)
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        const stringValue = String(str);
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+          return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+      };
 
-  //     // Create CSV headers
-  //     const headers = ['Name', 'Contact', 'RSVP Status'];
+      // Create CSV headers
+      const headers = ['Name', 'Contact', 'RSVP Status'];
       
-  //     // Map guests to CSV rows
-  //     const rows = guestListToExport.map((guest: any) => {
-  //       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
-  //       const guestEmail = guest.recipient?.email || '';
-  //       const guestPhone = guest.recipient?.phone || '';
-  //       const contact = guestPhone ? `${guestEmail} / ${guestPhone}` : guestEmail;
+      // Map guests to CSV rows
+      const rows = guestListToExport.map((guest: any) => {
+        const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
+        const guestEmail = guest.recipient?.email || '';
+        const guestPhone = guest.recipient?.phone || '';
+        const contact = guestPhone ? `${guestEmail} / ${guestPhone}` : guestEmail;
         
-  //       let status = 'Pending';
-  //       if (guest.rsvpStatus === 'accepted') status = 'Going';
-  //       else if (guest.rsvpStatus === 'declined') status = "Can't Go";
-  //       else if (guest.rsvpStatus === 'tentative') status = 'Maybe';
+        let status = 'Pending';
+        if (guest.rsvpStatus === 'accepted') status = 'Going';
+        else if (guest.rsvpStatus === 'declined') status = "Can't Go";
+        else if (guest.rsvpStatus === 'tentative') status = 'Maybe';
         
-  //       return [
-  //         escapeCSV(guestName),
-  //         escapeCSV(contact),
-  //         escapeCSV(status)
-  //       ].join(',');
-  //     });
+        return [
+          escapeCSV(guestName),
+          escapeCSV(contact),
+          escapeCSV(status)
+        ].join(',');
+      });
 
-  //     // Combine headers and rows
-  //     const csvContent = [headers.join(','), ...rows].join('\n');
+      // Combine headers and rows
+      const csvContent = [headers.join(','), ...rows].join('\n');
 
-  //  // The "as any" completely silences TypeScript's false alarm
-  //     const dir = (FileSystem as any).documentDirectory;
-  //     const fileUri = `${dir}guest-list.csv`;
+   // The "as any" completely silences TypeScript's false alarm
+      const dir = (FileSystem as any).documentDirectory;
+      const fileUri = `${dir}guest-list.csv`;
       
-  //     await FileSystem.writeAsStringAsync(fileUri, csvContent);
-  //     // Check if sharing is available and share
-  //     const isAvailable = await Sharing.isAvailableAsync();
-  //     if (isAvailable) {
-  //       await Sharing.shareAsync(fileUri, {
-  //         mimeType: 'text/csv',
-  //         dialogTitle: 'Export Guest List',
-  //       });
-  //     } else {
-  //       Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
-  //     }
-  //   } catch (error) {
-  //     console.error('Export error:', error);
-  //     Alert.alert('Export Failed', 'Failed to export guest list. Please try again.');
-  //   }
-  // };
+      await FileSystem.writeAsStringAsync(fileUri, csvContent);
+      // Check if sharing is available and share
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Guest List',
+        });
+      } else {
+        Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      Alert.alert('Export Failed', 'Failed to export guest list. Please try again.');
+    }
+  };
 
   const handleRSVP = async (status: string) => {
     const previousRsvp = myRsvp;
@@ -441,6 +455,7 @@ export default function EventDetailsHub() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setMyRsvp(response.data.rsvpStatus);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const statusMessage = status === 'accepted' ? 'attending' : status === 'declined' ? 'declined' : 'marked as maybe';
       Alert.alert('Success', `You are ${statusMessage}!`);
     } catch (err) {
@@ -455,6 +470,7 @@ export default function EventDetailsHub() {
     setSaveLoading(true);
     const previousState = isSaved;
     setIsSaved(!isSaved);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       const token = await AsyncStorage.getItem('authToken');
       const response = await axios.put(
@@ -718,12 +734,12 @@ export default function EventDetailsHub() {
                     />
 
                     {/* EXPORT CSV BUTTON */}
-                    {/* <TouchableOpacity
+                    <TouchableOpacity
                       style={[styles.exportCSVButton, { marginBottom: SPACING.md }]}
                       onPress={exportGuestList}
                     >
                       <Text style={styles.exportCSVButtonText}>📊 Export CSV</Text>
-                    </TouchableOpacity> */}
+                    </TouchableOpacity>
 
                     {/* UPDATED: Map over filteredGuests */}
                     {filteredGuests.map((guest: any, index: number) => {

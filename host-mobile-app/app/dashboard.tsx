@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,18 +9,22 @@ import {
   AppState,
   ActivityIndicator,
   Linking,
-  Alert, // <-- Added Alert for offline mode notifications
+  Alert, 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import axios from 'axios';
+import Toast from 'react-native-toast-message';
+import { Ionicons } from '@expo/vector-icons';
+
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import PhoneSyncCard from '../components/PhoneSyncCard';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 import * as Notifications from 'expo-notifications';
 import { cacheData, getCachedData, CACHE_KEYS } from '../utils/cache';
 import EventCardSkeleton from '../components/EventCardSkeleton';
+
 interface Event {
   _id: string;
   title?: string;
@@ -29,6 +33,7 @@ interface Event {
   description?: string;
   coverImage?: string;
   user?: string;
+  isRead?: boolean;
   host?: {
     _id?: string;
   };
@@ -39,17 +44,55 @@ const API_URL = `${baseUrl}/invitations`;
 
 export default function Dashboard() {
   const router = useRouter();
+  
+  // --- NOTIFICATION STATE (LOCALIZED POLLING) ---
+  const [notificationCounts, setNotificationCounts] = useState({ pendingInvites: 0 });
+  const prevInvitesRef = useRef(0);
+
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
-  // State for the permission denial banner
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
-  
   const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
-// 1. Extract the logic into a standalone function so it can be called multiple times
+
+  // --- BACKGROUND POLLING & REFRESH ---
+  const fetchCounts = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) return;
+      const response = await axios.get(`${baseUrl}/users/notifications/counts`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setNotificationCounts(response.data);
+    } catch (err) { }
+  }, []);
+
+  useEffect(() => {
+    fetchCounts(); 
+    const interval = setInterval(fetchCounts, 30000); 
+    return () => clearInterval(interval);
+  }, [fetchCounts]);
+
+  // --- TOAST TRIGGER ---
+  useEffect(() => {
+    const currentCount = notificationCounts.pendingInvites || 0;
+    
+    if (currentCount > prevInvitesRef.current) {
+      Toast.show({
+        type: 'success',
+        text1: '🎉 New Invitation!',
+        text2: `You have ${currentCount} pending event invitations waiting for you.`,
+        position: 'top',
+        visibilityTime: 4000,
+      });
+    }
+    
+    prevInvitesRef.current = currentCount;
+  }, [notificationCounts.pendingInvites]);
+
   const checkPermissionsAndGetToken = async () => {
     try {
       const authToken = await AsyncStorage.getItem('authToken');
@@ -58,56 +101,46 @@ export default function Dashboard() {
       const expoPushToken = await registerForPushNotificationsAsync();
       
       if (expoPushToken) {
-        setPushPermissionDenied(false); // Hides banner instantly
+        setPushPermissionDenied(false); 
         await axios.put(
           `${baseUrl}/users/push-token`,
           { expoPushToken },
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
       } else {
-        setPushPermissionDenied(true); // Shows banner
+        setPushPermissionDenied(true); 
       }
     } catch (error) {
       console.error("❌ Failed to setup push notifications:", error);
     }
   };
 
-  // 2. Run it ONCE when the dashboard first loads
   useEffect(() => {
     checkPermissionsAndGetToken();
   }, []);
 
-  // 3. Listen for the app waking up (returning from Android Settings)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (nextAppState === 'active') {
-        console.log('📱 App returned to foreground. Re-checking permissions...');
         checkPermissionsAndGetToken();
       }
     });
 
-    return () => {
-      subscription.remove();
-    };
+    return () => subscription.remove();
   }, []);
 
-  // DEEP LINKING NOTIFICATION LISTENER
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      console.log("👉 NOTIFICATION TAPPED! Payload grabbed:", data);
-
       if (data && data.invitationId) {
         router.push(`/event/${data.invitationId}?mode=attending`);
       }
     });
 
-    return () => {
-      subscription.remove();
-    };
+    return () => subscription.remove();
   }, []);
 
- const fetchEvents = async () => {
+  const fetchEvents = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -118,7 +151,6 @@ export default function Dashboard() {
         return;
       }
 
-      // 1. Fetch User Data (Preserved from your original code)
       const userStr = await AsyncStorage.getItem('user');
       let myUserId: string | undefined;
       if (userStr) {
@@ -127,26 +159,20 @@ export default function Dashboard() {
           setUserData(parsedUser);
           myUserId = parsedUser._id || parsedUser.id;
           setShowSync(!parsedUser.isPhoneVerified);
-        } catch (e) {
-          console.log('Failed to parse user data');
-        }
+        } catch (e) { }
       }
 
-      // 2. Determine Routes and Cache Keys
       const endpoint = viewMode === 'hosting' ? API_URL : `${API_URL}/received`;
       const cacheKey = viewMode === 'hosting' ? CACHE_KEYS.INVITATIONS : CACHE_KEYS.INVITATIONS_RECEIVED;
 
-      // 🚨 THE SHORT-CIRCUIT: Check hardware before networking
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
 
       if (!networkState.isConnected) {
-        console.log('🌐 Device offline. Pulling events from Vault.');
         const cachedEvents = await getCachedData(cacheKey);
         
         if (cachedEvents) {
           let eventsToShow = cachedEvents;
-          // Apply filter if in Attending mode
           if (viewMode === 'attending' && myUserId) {
             eventsToShow = cachedEvents.filter((event: any) => {
               const eventOwnerId = event.user || event.host?._id;
@@ -158,19 +184,16 @@ export default function Dashboard() {
           setError('No internet connection and no cached data available.');
         }
         setLoading(false);
-        return; // STOP EXECUTION: Do not let Axios fire.
+        return; 
       }
 
-      // 3. The Network Request (With Kill Switch)
-      console.log(`👉 FETCHING EVENTS FROM: ${endpoint}`);
       const response = await axios.get(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 5000, // Prevent Android Socket timeouts
+        timeout: 5000, 
       });
 
       let fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
       
-      // Apply filter if in Attending mode
       if (viewMode === 'attending' && myUserId) {
         fetchedEvents = fetchedEvents.filter((event: any) => {
           const eventOwnerId = event.user || event.host?._id;
@@ -178,26 +201,20 @@ export default function Dashboard() {
         });
       }
       
-      // Save fresh data to Vault
       await cacheData(cacheKey, fetchedEvents);
       setEvents(fetchedEvents);
 
     } catch (err: any) {
-      console.log("❌ EVENTS FETCH ERROR:", err.message);
-      
       if (err.response?.status === 401) {
-        console.log("Dead token detected. Forcing logout.");
         await AsyncStorage.multiRemove(['authToken', 'user']);
         router.replace('/');
         return;
       }
       
-      // Fallback if network drops exactly mid-flight
       if (err.code === 'ECONNABORTED' || !err.response) {
         const cacheKey = viewMode === 'hosting' ? CACHE_KEYS.INVITATIONS : CACHE_KEYS.INVITATIONS_RECEIVED;
         const cachedEvents = await getCachedData(cacheKey);
         if (cachedEvents) {
-          // You could run the attending filter here too if needed, but keeping it robust
           setEvents(cachedEvents);
         } else {
            setError('Network request failed and no cache available.');
@@ -209,10 +226,12 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
+
   useFocusEffect(
     useCallback(() => {
       fetchEvents();
-    }, [viewMode])
+      fetchCounts(); // INSTANTLY update the red badge when returning to this screen
+    }, [viewMode, fetchCounts])
   );
 
   const handleSyncSuccess = () => {
@@ -220,135 +239,179 @@ export default function Dashboard() {
     fetchEvents(); 
   };
 
-  const renderEventItem = ({ item }: { item: Event }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push(`/event/${item._id}?mode=${viewMode}`)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardContent}>
-        <Text style={styles.cardTitle}>{item.title || 'Untitled Event'}</Text>
-        <Text style={styles.cardDate}>
-          {item.eventDate ? new Date(item.eventDate).toLocaleDateString() : 'Date not set'}
-        </Text>
-        <Text style={styles.cardLocation}>{item.location || 'Location not set'}</Text>
-      </View>
-      
-      <View style={styles.cardImageContainer}>
-        {item.coverImage ? (
-          <Image source={{ uri: item.coverImage }} style={styles.cardImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.cardImagePlaceholder}>
-            <Text style={styles.cardImagePlaceholderText}>📅</Text>
+  const renderEventItem = ({ item }: { item: Event }) => {
+    // Determine if it's a new received invite
+    const isNew = viewMode === 'attending' && item.isRead === false;
+
+    return (
+      <TouchableOpacity
+        style={[styles.card, isNew && { borderColor: COLORS.primary, borderWidth: 1 }]}
+        onPress={() => router.push(`/event/${item._id}?mode=${viewMode}`)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardContent}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            <Text style={[styles.cardTitle, { flexShrink: 1 }]} numberOfLines={1}>
+              {item.title || 'Untitled Event'}
+            </Text>
+            {isNew && (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            )}
           </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+          <Text style={styles.cardDate}>
+            {item.eventDate ? new Date(item.eventDate).toLocaleDateString() : 'Date not set'}
+          </Text>
+          <Text style={styles.cardLocation}>{item.location || 'Location not set'}</Text>
+        </View>
+        
+        <View style={styles.cardImageContainer}>
+          {item.coverImage ? (
+            <Image source={{ uri: item.coverImage }} style={styles.cardImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.cardImagePlaceholder}>
+              <Text style={styles.cardImagePlaceholderText}>📅</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       
-      {loading ? (
-  <View style={{ flex: 1, backgroundColor: COLORS.background, padding: SPACING.screenPadding }}>
-    <EventCardSkeleton />
-    <EventCardSkeleton />
-    <EventCardSkeleton />
-  </View>
-): (
-        <>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>My Events</Text>
-            
-            <TouchableOpacity 
-              style={styles.profileAvatarBtn} 
-              onPress={() => router.push('/profile')}
-            >
-              {userData?.profileImage ? (
-                <Image source={{ uri: userData.profileImage }} style={styles.profileImage} />
-              ) : (
-                <View style={styles.profileInitials}>
-                  <Text style={styles.profileInitialsText}>
-                    {userData?.name ? userData.name.charAt(0).toUpperCase() : 'U'}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* THE WARNING BANNER */}
-          {pushPermissionDenied && (
-            <TouchableOpacity 
-              style={styles.warningBanner}
-              onPress={() => Linking.openSettings()}
-            >
-              <Text style={styles.warningText}>
-                ⚠️ Notifications are disabled! Tap here to open Settings and turn them on to receive event invites.
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          <View style={styles.quickActionsContainer}>
-            <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
-              <Text style={styles.savedButtonText}>📌 Saved</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
-              <Text style={styles.primaryButtonText}>👥 Groups</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.toggleRow}>
-            <TouchableOpacity
-              style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
-              onPress={() => setViewMode('hosting')}
-            >
-              <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
-                Hosting
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.pillButton, viewMode === 'attending' && styles.pillButtonActive]}
-              onPress={() => setViewMode('attending')}
-            >
-              <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
-                Attending
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
-
-          {error ? (
-            <View style={styles.centered}>
-              <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={styles.retryButton} onPress={fetchEvents}>
-                <Text style={styles.retryButtonText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          ) : events.length === 0 ? (
-            <View style={styles.centered}>
-              <Text style={styles.emptyText}>
-                {viewMode === 'hosting' ? 'You have not created any events.' : 'You have no upcoming event invitations.'}
-              </Text>
-              {viewMode === 'hosting' && (
-                <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
-              )}
-            </View>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>My Events</Text>
+        
+        <TouchableOpacity 
+          style={styles.profileAvatarBtn} 
+          onPress={() => router.push('/profile')}
+        >
+          {userData?.profileImage ? (
+            <Image source={{ uri: userData.profileImage }} style={styles.profileImage} />
           ) : (
-            <FlatList
-              data={events}
-              keyExtractor={(item) => item._id}
-              renderItem={renderEventItem}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-            />
+            <View style={styles.profileInitials}>
+              <Text style={styles.profileInitialsText}>
+                {userData?.name ? userData.name.charAt(0).toUpperCase() : 'U'}
+              </Text>
+            </View>
           )}
+        </TouchableOpacity>
+      </View>
+
+      {pushPermissionDenied && (
+        <TouchableOpacity 
+          style={styles.warningBanner}
+          onPress={() => Linking.openSettings()}
+        >
+          <Text style={styles.warningText}>
+            ⚠️ Notifications are disabled! Tap here to open Settings and turn them on to receive event invites.
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      <View style={styles.quickActionsContainer}>
+        <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
+          <Text style={styles.savedButtonText}>📌 Saved</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
+          <Text style={styles.primaryButtonText}>👥 Groups</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.toggleRow}>
+        <TouchableOpacity
+          style={[styles.pillButton, viewMode === 'hosting' && styles.pillButtonActive]}
+          onPress={() => setViewMode('hosting')}
+        >
+          <Text style={[styles.pillButtonText, viewMode === 'hosting' && styles.pillButtonTextActive]}>
+            Hosting
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[
+            styles.pillButton, 
+            viewMode === 'attending' && styles.pillButtonActive,
+            { position: 'relative' } 
+          ]}
+          onPress={() => setViewMode('attending')}
+        >
+          <Text style={[styles.pillButtonText, viewMode === 'attending' && styles.pillButtonTextActive]}>
+            Attending
+          </Text>
           
-          <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
-            <Text style={styles.fabText}>+</Text>
+          {/* THE RED NOTIFICATION BADGE */}
+          {notificationCounts.pendingInvites > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{notificationCounts.pendingInvites}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {showSync && <PhoneSyncCard onSyncSuccess={handleSyncSuccess} />}
+
+      {loading ? (
+        <View style={{ flex: 1, marginTop: 10 }}>
+          <EventCardSkeleton />
+          <EventCardSkeleton />
+          <EventCardSkeleton />
+        </View>
+      ) : error ? (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchEvents}>
+            <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
-        </>
+        </View>
+      ) : events.length === 0 ? (
+        <View style={styles.emptyStateContainer}>
+          <View style={styles.emptyStateIconContainer}>
+            <Ionicons 
+              name={viewMode === 'hosting' ? "calendar-outline" : "mail-open-outline"} 
+              size={64} 
+              color={COLORS.primary || '#3730A3'} 
+              style={{ opacity: 0.8 }}
+            />
+          </View>
+          <Text style={styles.emptyStateTitle}>
+            {viewMode === 'hosting' ? "Let's get started!" : "You're all caught up."}
+          </Text>
+          <Text style={styles.emptyStateSubtext}>
+            {viewMode === 'hosting' 
+              ? "Create your first event to send out stunning invitations and track your RSVPs in real-time." 
+              : "When hosts invite you to their events, they will magically appear right here."}
+          </Text>
+          
+          {viewMode === 'hosting' && (
+            <TouchableOpacity 
+              style={styles.emptyStateButton}
+              onPress={() => router.push('/create')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={styles.emptyStateButtonText}>Create Your First Event</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          data={events}
+          keyExtractor={(item) => item._id}
+          renderItem={renderEventItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+      
+      {!loading && events.length > 0 && (
+        <TouchableOpacity style={styles.fab} onPress={() => router.push('/create')}>
+          <Text style={styles.fabText}>+</Text>
+        </TouchableOpacity>
       )}
     </SafeAreaView>
   );
@@ -385,7 +448,6 @@ const styles = StyleSheet.create({
   profileInitials: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   profileInitialsText: { fontSize: 18, fontWeight: 'bold', color: '#4338CA' },
 
-  // WARNING BANNER STYLES
   warningBanner: {
     backgroundColor: '#FEE2E2',
     padding: 12,
@@ -432,9 +494,6 @@ const styles = StyleSheet.create({
   retryButton: { backgroundColor: COLORS.primary || '#3730A3', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 8 },
   retryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
   
-  emptyText: { ...TYPOGRAPHY.header, marginBottom: 8, textAlign: 'center', color: '#374151' },
-  emptySubtext: { ...TYPOGRAPHY.bodyMuted, textAlign: 'center' },
-  
   listContent: { paddingBottom: 80 }, 
   
   card: {
@@ -480,4 +539,75 @@ const styles = StyleSheet.create({
   pillButtonActive: { backgroundColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
   pillButtonText: { ...TYPOGRAPHY.body, color: '#6B7280', fontWeight: '600' },
   pillButtonTextActive: { color: COLORS.primary || '#3730A3' },
+
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: 12,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#E5E7EB', 
+  },
+  badgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+
+  newBadge: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  newBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+
+  // --- EMPTY STATE STYLES ---
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    marginTop: 40, 
+  },
+  emptyStateIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#E0E7FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  emptyStateTitle: {
+    ...TYPOGRAPHY.title,
+    fontSize: 24,
+    color: '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    ...TYPOGRAPHY.body,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  emptyStateButton: {
+    backgroundColor: COLORS.primary || '#3730A3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 12,
+    ...(SHADOWS.card || { elevation: 2, shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } }),
+  },
+  emptyStateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
