@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pickAndCompressImages } from '@/utils/imageHandler';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme'; 
@@ -115,16 +116,14 @@ export default function EditEventScreen() {
     }
   };
 
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [16, 9],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setImage(result.assets[0].uri);
+ const pickImage = async () => {
+    // We only need 1 image for the cover
+    const newImages = await pickAndCompressImages(1); 
+    
+    // If the user picked an image and the compression didn't fail
+    if (newImages.length > 0) {
+      // Grab the first (and only) compressed URI and set it to your 'image' state
+      setImage(newImages[0].uri);
     }
   };
 

@@ -240,12 +240,15 @@ export default function Dashboard() {
   };
 
   const renderEventItem = ({ item }: { item: Event }) => {
-    // Determine if it's a new received invite
+    // Only show "NEW" tag if we are in attending mode and the event is unread
     const isNew = viewMode === 'attending' && item.isRead === false;
 
     return (
       <TouchableOpacity
-        style={[styles.card, isNew && { borderColor: COLORS.primary, borderWidth: 1 }]}
+        style={[
+          styles.card, 
+          isNew && { borderColor: COLORS.primary, borderWidth: 1.5, backgroundColor: '#F0F4FF' }
+        ]}
         onPress={() => router.push(`/event/${item._id}?mode=${viewMode}`)}
         activeOpacity={0.7}
       >
@@ -260,10 +263,13 @@ export default function Dashboard() {
               </View>
             )}
           </View>
+          
           <Text style={styles.cardDate}>
             {item.eventDate ? new Date(item.eventDate).toLocaleDateString() : 'Date not set'}
           </Text>
-          <Text style={styles.cardLocation}>{item.location || 'Location not set'}</Text>
+          <Text style={styles.cardLocation} numberOfLines={1}>
+            {item.location || 'Location not set'}
+          </Text>
         </View>
         
         <View style={styles.cardImageContainer}>
@@ -278,7 +284,6 @@ export default function Dashboard() {
       </TouchableOpacity>
     );
   };
-
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />

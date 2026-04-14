@@ -12,9 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { pickAndCompressImages } from '../utils/imageHandler';
 import { COLORS, SPACING, TYPOGRAPHY } from '../constants/theme';
 
 const API_URL = 'https://invitoinbox.onrender.com/api/invitations/create';
@@ -37,41 +37,12 @@ export default function CreateEvent() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  const pickImages = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (!permissionResult.granted) {
-        Alert.alert('Permission Required', 'Please allow access to your photo library.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-        allowsMultipleSelection: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        const newAttachments = result.assets.map(asset => ({
-          uri: asset.uri,
-          name: asset.fileName || `photo_${Date.now()}.jpg`,
-          type: asset.mimeType || 'image/jpeg',
-        }));
-        
-        // Limit to 5 attachments max
-        const combined = [...attachments, ...newAttachments].slice(0, 5);
-        setAttachments(combined);
-        
-        if (attachments.length >= 5) {
-          Alert.alert('Limit Reached', 'Maximum 5 attachments allowed.');
-        }
-      }
-    } catch (error) {
-      console.error('Error picking images:', error);
-      Alert.alert('Error', 'Failed to select images');
+  const pickImage = async () => {
+    // IT MUST BE pickAndCompressImages, NOT pickImages
+    const newImages = await pickAndCompressImages(5); 
+    if (newImages.length > 0) {
+      const combined = [...attachments, ...newImages].slice(0, 5);
+      setAttachments(combined);
     }
   };
 
@@ -273,7 +244,7 @@ export default function CreateEvent() {
           <Text style={styles.label}>Attachments (max 5)</Text>
           <TouchableOpacity
             style={styles.attachmentButton}
-            onPress={pickImages}
+            onPress={pickImage}
           >
             <Text style={styles.attachmentIcon}>📷</Text>
             <Text style={styles.attachmentText}>Select Images from Gallery</Text>

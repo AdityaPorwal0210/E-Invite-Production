@@ -7,6 +7,9 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
+import { pickAndCompressImages } from '@/utils/imageHandler';
+import * as ImageManipulator from 'expo-image-manipulator';
+
 import * as Haptics from 'expo-haptics';
 
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
@@ -488,32 +491,14 @@ export default function EventDetailsHub() {
   };
 
   const pickImage = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) return Alert.alert('Permission Required', 'Please allow access.');
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-        allowsMultipleSelection: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        const newAttachments = result.assets.map(asset => ({
-          uri: asset.uri,
-          name: asset.fileName || `photo_${Date.now()}.jpg`,
-          type: asset.mimeType || 'image/jpeg',
-        }));
-        const combined = [...attachments, ...newAttachments].slice(0, 5);
-        setAttachments(combined);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to select images');
+    // We pass 5 because this screen allows up to 5 attachments
+    const newImages = await pickAndCompressImages(5); 
+    if (newImages.length > 0) {
+      // In this file, your state IS actually called 'attachments', so this works perfectly
+      const combined = [...attachments, ...newImages].slice(0, 5);
+      setAttachments(combined);
     }
   };
-
   const removeAttachment = (index: number) => {
     setAttachments(attachments.filter((_, i) => i !== index));
   };

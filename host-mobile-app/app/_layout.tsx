@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
 
 // Push Notification Imports
@@ -9,20 +9,42 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 
 // Tell the app how to handle notifications when it is actively open on the screen
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
     shouldSetBadge: false,
-    shouldShowBanner: true, // Replaces shouldShowAlert
-    shouldShowList: true,   // Required by the new types
+    shouldShowBanner: true, 
+    shouldShowList: true,  
   }),
 });
 
 export default function RootLayout() {
-  
-  // Fire the harvester as soon as the root layout mounts
+  const router = useRouter();
+  const url = Linking.useURL();
+
+  // --- THE DEEP LINK CATCHER ---
+  useEffect(() => {
+    if (url) {
+      console.log('🔗 Deep Link Caught:', url);
+      const parsedUrl = Linking.parse(url);
+      
+      // If the URL contains '/invitation/', grab the ID and route to the event screen
+      if (parsedUrl.path && parsedUrl.path.includes('invitation/')) {
+        const id = parsedUrl.path.split('/').pop();
+        if (id) {
+          // Add a tiny delay to ensure navigation is ready if it's a cold start
+          setTimeout(() => {
+            router.push(`/event/${id}?mode=attending`);
+          }, 500);
+        }
+      }
+    }
+  }, [url]);
+
+  // --- PUSH NOTIFICATION HARVESTER ---
   useEffect(() => {
     registerForPushNotificationsAsync();
   }, []);
@@ -65,11 +87,10 @@ export default function RootLayout() {
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken && token) {
         try {
-          // CORRECT
-await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`, 
-  { expoPushToken: token }, 
-  { headers: { Authorization: `Bearer ${authToken}` } }
-);
+          await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`, 
+            { expoPushToken: token }, 
+            { headers: { Authorization: `Bearer ${authToken}` } }
+          );
           console.log("✅ Token saved to database");
         } catch (err) {
           console.log("❌ Failed to save token to database", err);
@@ -87,6 +108,7 @@ await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`,
     <>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
+        {/* Note: I am leaving your invitation/[id] screen here just in case, but deep links will now route to event/[id] */}
         <Stack.Screen name="invitation/[id]" />
       </Stack>
       

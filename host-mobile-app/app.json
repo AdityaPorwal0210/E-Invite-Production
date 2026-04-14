@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.invitoinbox.app"
+      "bundleIdentifier": "com.invitoinbox.app",
+      "associatedDomains": [
+        "applinks:invitoinnbox.vercel.app"
+      ]
     },
     "android": {
       "package": "com.invitoinbox.app",
@@ -31,25 +34,15 @@
             {
               "scheme": "https",
               "host": "invitoinnbox.vercel.app",
-              "pathPrefix": "/invite"
+              "pathPrefix": "/invitation"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         },
         {
           "action": "VIEW",
-          "data": [
-            {
-              "scheme": "hostapp"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "data": [{ "scheme": "hostapp" }],
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },

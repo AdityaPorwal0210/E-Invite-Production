@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.invitoinbox.app",
+      "sha256_cert_fingerprints": [
+        "E8:CB:9C:51:41:45:DE:EE:C8:3A:78:7D:A4:E2:C8:9B:31:95:07:7E:19:9F:50:98:12:17:9E:00:80:94:2E:E5"
+      ]
+    }
+  }
+]   
