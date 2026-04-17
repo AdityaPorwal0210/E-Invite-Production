@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 
 export default function SmartAppBanner() {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 const [os, setOs] = useState<'ios' | 'android' | null>(null);
 
   useEffect(() => {
