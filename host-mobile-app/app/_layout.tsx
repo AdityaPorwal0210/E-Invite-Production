@@ -32,13 +32,21 @@ export default function RootLayout() {
       const parsedUrl = Linking.parse(url);
       
       // If the URL contains '/invitation/', grab the ID and route to the event screen
+      // If the URL contains '/invitation/', grab the ID and route to the event screen
       if (parsedUrl.path && parsedUrl.path.includes('invitation/')) {
-        const id = parsedUrl.path.split('/').pop();
-        if (id) {
-          // Add a tiny delay to ensure navigation is ready if it's a cold start
-          setTimeout(() => {
-            router.push(`/event/${id}?mode=attending`);
-          }, 500);
+        const rawId = parsedUrl.path.split('invitation/').pop();
+        
+        // TS FIX: Guarantee rawId exists before operating on it
+        if (rawId) {
+          // Sanitize: Strip any accidentally attached query params or slashes
+          const cleanId = rawId.split('?')[0].replace(/\//g, '');
+          
+          if (cleanId) {
+            // Add a tiny delay to ensure navigation is ready if it's a cold start
+            setTimeout(() => {
+              router.push(`/event/${cleanId}`);
+            }, 500);
+          }
         }
       }
     }

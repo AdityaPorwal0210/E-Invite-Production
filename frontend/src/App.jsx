@@ -9,7 +9,6 @@ import CreateEventForm from './components/CreateEventForm';
 import Groups from './components/Groups';
 import GroupDetails from './components/GroupDetails';
 import PublicInvite from './components/PublicInvite';
-// PublicGroupJoin is bypassed, so we don't even need to import it
 import GroupInviteLanding from './components/GroupInviteLanding';
 import Inbox from './components/Inbox';
 import InvitationDetail from './components/InvitationDetail';
@@ -19,6 +18,9 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import HostGuestList from './components/HostGuestList';
 import InviteBridge from './components/InviteBridge';
+
+// 1. IMPORT THE BANNER HERE
+import SmartAppBanner from './components/SmartAppBanner'; 
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -132,6 +134,9 @@ function App() {
         } 
       />
     </Routes>
+    
+    {/* 2. INJECT THE BANNER HERE */}
+    <SmartAppBanner />
     </>
   );
 }

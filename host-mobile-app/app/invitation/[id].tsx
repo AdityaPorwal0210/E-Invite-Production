@@ -105,11 +105,24 @@ export default function InvitationDetailScreen() {
     }
   };
 
- const fetchInvitation = async (token: string) => {
+const fetchInvitation = async (token: string) => {
     try {
-      console.log('📡 Fetching invitation from API:', id);
+      // 1. PREVENT BLIND FIRING: Do not skip this check.
+      if (!token || token === 'null' || token === '') {
+        console.log('No token found. User needs to log in before fetching invitation.');
+        return; 
+      }
 
-      const response = await axios.get(`${API_URL}/invitations/${id}`, {
+      // 2. ID SANITIZATION
+      const rawId = Array.isArray(id) ? id[0] : id;
+      if (!rawId) {
+        throw new Error("No ID found in URL");
+      }
+      const cleanId = rawId.split('?')[0].replace(/\//g, '');
+
+      console.log(`📡 Fetching API with sanitized ID: ${cleanId}`);
+
+      const response = await axios.get(`${API_URL}/invitations/${cleanId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -120,7 +133,6 @@ export default function InvitationDetailScreen() {
       setMyRsvp(data.rsvpStatus || '');
       setIsSaved(data.isSaved || false);
       
-      // Determine if current user is the owner
       const userStr = await AsyncStorage.getItem('user');
       if (userStr) {
         const userData = JSON.parse(userStr);
@@ -129,12 +141,13 @@ export default function InvitationDetailScreen() {
         const ownerId = data.host?._id || data.user;
         setIsOwner(ownerId === userId);
       }
-    } catch (err) {
-      console.error('❌ Fetch invitation error:', err);
-      Alert.alert('Error', 'Failed to load this invitation. It may have been deleted.');
+    } catch (err: any) {
+      // 3. NO CONSOLE.ERROR: Use console.log to kill the Red Screen
+      console.log('❌ Fetch invitation error:', err?.response?.data || err.message);
+      Alert.alert('Error', 'Failed to load this invitation. It may have been deleted or the URL is invalid.');
       router.replace('/'); 
     } finally {
-      setLoading(false); // ALWAYS turn off the loading spinner
+      setLoading(false); 
     }
   };
 
