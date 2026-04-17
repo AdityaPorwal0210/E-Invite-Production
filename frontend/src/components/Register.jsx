@@ -1,6 +1,6 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
@@ -9,7 +9,7 @@ const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState(''); // NEW STATE
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -21,8 +21,11 @@ const Register = () => {
   
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
-  const returnTo = searchParams.get('returnTo') || '/';
+  
+  // SMART REDIRECT: Check internal router state first, then URL params, then default to '/'
+  const returnUrl = location.state?.returnTo || searchParams.get('returnTo') || '/';
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -31,7 +34,7 @@ const Register = () => {
       });
       login(response.data.token, response.data.user);
       toast.success('Welcome! Your account has been created with Google.');
-      navigate(returnTo);
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Google registration failed');
     }
@@ -48,7 +51,7 @@ const Register = () => {
         name,
         email,
         password,
-        phoneNumber // ADDED TO PAYLOAD
+        phoneNumber
       });
       
       console.log("Registration Response:", response.data);
@@ -88,7 +91,7 @@ const Register = () => {
       // Now that they are verified in the DB, log them in with the token from verify-otp
       login(response.data.token, response.data.user);
       toast.success('Account verified! Welcome!');
-      navigate(returnTo);
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       console.error("OTP Error:", err);
       toast.error(err.response?.data?.message || 'Invalid or expired OTP');
@@ -173,13 +176,13 @@ const Register = () => {
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Create a new account
           </h2>
-          {returnTo !== '/' && (
+          {returnUrl !== '/' && (
             <div className="mt-2 p-3 bg-blue-50 text-blue-700 text-sm rounded-md">
               Please register to view this invitation.
             </div>
           )}
           <p className="mt-2 text-center text-sm text-gray-600">
-            Already have an account? <Link to="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Already have an account? <Link to="/login" state={{ returnTo: returnUrl }} className="font-medium text-indigo-600 hover:text-indigo-500">
               Sign in
             </Link>
           </p>

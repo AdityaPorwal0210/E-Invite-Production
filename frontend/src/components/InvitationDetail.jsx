@@ -66,7 +66,7 @@ const InvitationDetail = () => {
     return value.toString();
   };
 
-const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : null;
+  const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : null;
   const hostId = invitation ? (getStringId(invitation?.host?._id) || getStringId(invitation?.host) || getStringId(invitation?.user)) : null;
   
   // 1. Are they the primary creator?
@@ -131,34 +131,22 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
   }, [invitation?.isRead, isOwner, user, id]);
 
   // WebSocket connection for real-time RSVP updates (only for event owners)
-// WebSocket connection for real-time RSVP updates (only for event owners)
   useEffect(() => {
-    // Only connect if user is the owner. 
-    // Since isOwner is derived from the invitation, we don't need invitation in the dependencies.
     if (!isOwner) {
       return;
     }
 
-    // Connect to socket
     socket.connect();
-    
     console.log('🔌 WebSocket connecting for real-time RSVP updates...');
 
-    // Listen for RSVP updates from the backend
     socket.on('rsvp-updated', (payload) => {
       console.log('📡 Real-time RSVP update received:', payload);
-      
-      // Check if this update is for this event
       if (payload.eventId === id) {
-        // Use background refresh - no loading flicker!
         refreshInvitationData();
-        
-        // Show a toast notification
         toast.success('A guest just RSVP\'d! Guest list updated.');
       }
     });
 
-    // Listen for connection events for debugging
     socket.on('connect', () => {
       console.log('✅ WebSocket connected:', socket.id);
     });
@@ -167,7 +155,6 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
       console.log('❌ WebSocket connection error:', err.message);
     });
 
-    // Cleanup: disconnect when component unmounts
     return () => {
       socket.off('rsvp-updated');
       socket.off('connect');
@@ -175,19 +162,16 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
       socket.disconnect();
       console.log('🔌 WebSocket disconnected');
     };
-  // CRITICAL FIX: Removed 'invitation' from this array so it stops flapping on every update
   }, [id, isOwner]);
 
   // ============ ALL FUNCTIONS AFTER USE EFFECT ============
   
-  // Main fetch function used for initial load (sets loading state)
   const fetchInvitation = async (silent = false) => {
     if (!silent) {
       setLoading(true);
     }
     
     try {
-      // Use the user from component scope (from context)
       const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
       const response = await api.get(endpoint);
       setInvitation(response.data);
@@ -196,7 +180,6 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
       if (!silent) setLoading(false);
     } catch (err) {
       console.error('fetchInvitation error:', err);
-      // Only show error if it's a fresh load (not silent refresh)
       if (!silent && !err.response) {
         setError('Failed to load event. Please refresh the page.');
       }
@@ -204,67 +187,36 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
     }
   };
 
-  // Lightweight background refresh for socket updates - doesn't set loading
   const refreshInvitationData = async () => {
     console.log('🔄 Background refresh triggered...');
-    
-    // Guard: ensure we still have a valid user
-    if (!user) {
-      console.log('⚠️ No user in context, skipping refresh');
-      return;
-    }
+    if (!user) return;
     
     try {
-      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
+      const endpoint = `/invitations/${id}`;
       const response = await api.get(endpoint);
-      
-      // Directly update state without triggering loading flicker
       setInvitation(response.data);
       if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
       if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-      
       console.log('✅ Guest list updated silently');
     } catch (err) {
       console.error('❌ Background refresh failed:', err.message);
-      // Fallback: try a full fetch but without showing loading
-      if (user) {
-        try {
-          const response = await api.get(`/invitations/${id}`);
-          setInvitation(response.data);
-        } catch (fallbackErr) {
-          console.error('❌ Fallback also failed:', fallbackErr.message);
-        }
-      }
     }
   };
 
- const handleRSVP = async (status) => {
-    // 1. Optimistic UI Update: Instant visual feedback
+  const handleRSVP = async (status) => {
     const previousRsvp = myRsvp;
     setMyRsvp(status);
     setRsvpLoading(true);
 
     try {
-      // 2. Network Request (Using your web app's 'api' instance)
       const response = await api.put(`/invitations/${id}/rsvp`, { status });
-      
-      // 3. Lock in the true status from the server
       setMyRsvp(response.data.rsvpStatus);
-      
-      // 4. Clean web toast
       toast.success('RSVP updated successfully!');
-      
-      // 5. Trigger Web-specific background data refreshes
-      await fetchInvitation();
+      await fetchInvitation(true);
       fetchNotificationCounts();
-      
     } catch (err) {
-      // 6. Rollback: Revert the UI if the network request fails
       setMyRsvp(previousRsvp);
-      
-      // 7. Robust error extraction
-      const errorMessage = err.response?.data?.message || 'Failed to update RSVP';
-      toast.error(errorMessage);
+      toast.error(err.response?.data?.message || 'Failed to update RSVP');
     } finally {
       setRsvpLoading(false);
     }
@@ -290,7 +242,7 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
       if (type === 'email') payload.email = value;
       if (type === 'groupId') payload.groupId = value;
       await api.put(`/invitations/${id}/revoke`, payload);
-      fetchInvitation();
+      fetchInvitation(true);
     } catch (err) {
       alert('Failed to remove guest.');
     }
@@ -345,7 +297,6 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
   };
 
   const addUser = (user) => {
-    // Store user with a default empty salutation
     setSelectedUsers(prev => [...prev, { ...user, salutation: '' }]);
     setUserSearch('');
     setUserResults([]);
@@ -359,24 +310,12 @@ const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : n
     setSelectedUsers(prev => prev.map(u => u._id === userId ? { ...u, salutation } : u));
   };
 
-  // Helper to detect if string is a valid phone number (at least 10 digits, optional +, spaces, dashes)
-  const isValidPhone = (str) => {
-    const cleaned = str.replace(/[\s\-+-]/g, '');
-    return /^\d{10,}$/.test(cleaned);
-  };
-
-  // Helper to detect if string is a valid email
-  const isValidEmail = (str) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(str);
-  };
-
-const handleKeyDown = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const input = userSearch.trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const phoneRegex = /^\+?[\d\s-]{10,}$/; // Accepts 10+ digits, optional + or spaces
+      const phoneRegex = /^\+?[\d\s-]{10,}$/;
 
       if ((emailRegex.test(input) || phoneRegex.test(input)) && !selectedUsers.some(u => u._id === input)) {
         const type = phoneRegex.test(input) && !input.includes('@') ? 'phone' : 'email';
@@ -393,7 +332,6 @@ const handleKeyDown = (e) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRegex = /^\+?[\d\s-]{10,}$/;
 
-    // Catch anything left in the input box when they hit send
     if ((emailRegex.test(input) || phoneRegex.test(input)) && !finalUsers.some(u => u._id === input)) {
       const type = phoneRegex.test(input) && !input.includes('@') ? 'phone' : 'email';
       finalUsers.push({ _id: input, name: input, [type]: input, type });
@@ -410,19 +348,16 @@ const handleKeyDown = (e) => {
         }
       });
 
-      // SORT THE PAYLOAD: Emails go to emails, Phones go to phones
       const newEmails = [];
       const newPhones = [];
-      const newUsers = []; // Existing registered users from the dropdown search
+      const newUsers = [];
 
       finalUsers.forEach(u => {
         if (u.type === 'phone' || (phoneRegex.test(u._id) && !u._id.includes('@'))) {
-          // Backend expects an array of objects for phones
           newPhones.push({ phone: u._id, name: "Guest" });
         } else if (u.type === 'email' || emailRegex.test(u._id)) {
           newEmails.push(u._id);
         } else {
-          // Must be a MongoDB ObjectId from the user search dropdown
           newUsers.push(u._id);
         }
       });
@@ -431,7 +366,7 @@ const handleKeyDown = (e) => {
         newGroups: selectedGroups,
         newUsers: newUsers,
         newEmails: newEmails,
-        newPhones: newPhones, // WIRE THE PHONES TO THE BACKEND
+        newPhones: newPhones,
         salutations: salutationsMap
       };
       
@@ -454,6 +389,7 @@ const handleKeyDown = (e) => {
       setInviting(false);
     }
   };
+
   const formatVideoUrl = (url) => {
     if (!url) return null;
     const cleanUrl = url.trim();
@@ -501,19 +437,14 @@ const handleKeyDown = (e) => {
       setIsDeleting(false);
     }
   };
-const handleWhatsAppShare = () => {
-    // Dynamically grab the current URL of the event
+
+  const handleWhatsAppShare = () => {
     const eventUrl = window.location.href; 
-    
-    // Format the message
     const message = `Hey! I'm hosting "${invitation.title}" on ${formatDate(invitation.eventDate)} at ${invitation.location}. \n\nClick here to view details and RSVP: ${eventUrl}`;
-    
-    // Create the WhatsApp universal link
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    
-    // Open in a new tab (this triggers WhatsApp Web on desktop, or the WhatsApp app on mobile)
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
   };
+
   const openEditModal = () => {
     setEditForm({
       title: invitation.title || '',
@@ -579,6 +510,7 @@ const handleWhatsAppShare = () => {
     );
   }
 
+  // ============ GUEST VIEW (PROGRESSIVE DISCLOSURE) ============
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
@@ -590,20 +522,37 @@ const handleWhatsAppShare = () => {
           )}
           <div className="p-8 text-center">
             <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{invitation.title}</h1>
-            <p className="text-lg text-gray-500 mb-8">Hosted by <span className="font-semibold text-gray-900">{invitation.host?.name || 'Unknown'}</span></p>
-            <button onClick={() => navigate(`/register?returnTo=${location.pathname}`)} className="w-full py-3 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 mb-2">
-              Create Account to RSVP & View Details
-            </button>
-            <button onClick={() => navigate(`/login?returnTo=${location.pathname}`)} className="w-full py-3 px-4 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50">
-              Already registered? Log in
-            </button>
+            <p className="text-lg text-gray-500 mb-2">Hosted by <span className="font-semibold text-gray-900">{invitation.host?.name || 'Unknown'}</span></p>
+            
+            {/* The Hook: Showing the date pulls them in before asking for a login */}
+            <p className="font-medium text-indigo-600 mb-8 text-xl">
+              {invitation.eventDate ? formatDate(invitation.eventDate) : 'Date & Time TBA'}
+            </p>
+
+            <div className="border-t pt-8">
+              <p className="mb-6 text-gray-700 font-medium">Log in or create an account to RSVP, view the venue map, and see the guest list.</p>
+              
+              {/* SMART ROUTING via state */}
+              <button 
+                onClick={() => navigate('/register', { state: { returnTo: location.pathname } })} 
+                className="w-full py-3 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 mb-3 font-bold shadow-sm transition-colors"
+              >
+                Create Account to RSVP
+              </button>
+              <button 
+                onClick={() => navigate('/login', { state: { returnTo: location.pathname } })} 
+                className="w-full py-3 px-4 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 font-semibold transition-colors"
+              >
+                Already registered? Log in
+              </button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ============ RENDER ============
+  // ============ FULL APP RENDER ============
   const attachments = invitation?.attachments || [];
   const imageFiles = [
     ...(invitation?.coverImage ? [invitation.coverImage] : []),
@@ -650,8 +599,8 @@ const handleWhatsAppShare = () => {
                 <button onClick={handleDelete} disabled={isDeleting} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm disabled:opacity-50">{isDeleting ? 'Deleting...' : 'Delete'}</button>
                 <button onClick={() => setShowInviteModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm">+ Invite More</button>
                 <button onClick={handleWhatsAppShare} className="px-4 py-2 bg-[#25D366] text-white rounded-md hover:bg-[#128C7E] text-sm font-medium shadow-sm flex items-center gap-2">
-      💬 Share via WhatsApp
-    </button>
+                  💬 Share via WhatsApp
+                </button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
                 <button onClick={() => setShowCoHostModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">👑 Co-Hosts</button>
                 <span className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">Your Event</span>

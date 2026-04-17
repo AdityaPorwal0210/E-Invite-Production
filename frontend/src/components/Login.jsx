@@ -1,6 +1,6 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
@@ -19,8 +19,11 @@ const Login = () => {
   
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
-  const returnTo = searchParams.get('returnTo') || '/';
+  
+  // SMART REDIRECT: Check internal router state first, then URL params, then default to '/'
+  const returnUrl = location.state?.returnTo || searchParams.get('returnTo') || '/';
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -28,8 +31,8 @@ const Login = () => {
         idToken: credentialResponse.credential
       });
       login(response.data.token, response.data.user);
-      toast.success(' back!');
-      navigate(returnTo);
+      toast.success('Welcome back!');
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Google login failed');
     }
@@ -48,8 +51,8 @@ const Login = () => {
       
       // Login successful
       login(response.data.token, response.data.user);
-      toast.success('USB Bridge Active!');
-      navigate(returnTo);
+      toast.success('Login Successful!');
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       const message = err.response?.data?.message;
       const requiresOTP = err.response?.data?.requiresOTP;
@@ -82,7 +85,7 @@ const Login = () => {
       
       // Login successful after verification
       login(response.data.token, response.data.user);
-      navigate(returnTo);
+      navigate(returnUrl, { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid or expired OTP');
     }
@@ -166,13 +169,13 @@ const Login = () => {
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Sign in to your account
           </h2>
-          {returnTo !== '/' && (
+          {returnUrl !== '/' && (
             <div className="mt-2 p-3 bg-blue-50 text-blue-700 text-sm rounded-md">
               Please log in or register to view this invitation.
             </div>
           )}
           <p className="mt-2 text-center text-sm text-gray-600">
-            Or <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+            Or <Link to="/register" state={{ returnTo: returnUrl }} className="font-medium text-indigo-600 hover:text-indigo-500">
               create a new account
             </Link>
           </p>

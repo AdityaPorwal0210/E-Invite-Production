@@ -93,14 +93,7 @@ function App() {
           </ProtectedRoute>
         } 
       />
-      <Route 
-        path="/invitation/:id" 
-        element={
-          <ProtectedRoute>
-            <InvitationDetail />
-          </ProtectedRoute>
-        } 
-      />
+      <Route path="/invitation/:id" element={<InvitationDetail />} />
       <Route 
         path="/invitation/:id/guests" 
         element={
