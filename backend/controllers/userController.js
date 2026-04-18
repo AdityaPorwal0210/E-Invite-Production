@@ -8,7 +8,6 @@ const { OAuth2Client } = require("google-auth-library");
 const sendEmail = require("../utils/sendEmail");
 const sendPushNotification = require('../utils/pushNotification');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // Generate JWT Helper Function
 const generateToken = (id) => {
