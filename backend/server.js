@@ -2,10 +2,13 @@ require('dotenv').config();
 const { errorHandler } = require('./middleware/error.middleware');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet'); // INJECTED: Security Headers
+const rateLimit = require('express-rate-limit'); // INJECTED: DDoS Protection
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 const startReminderCron = require('./utils/reminderCron');
+
 // 1. Import Routes
 const userRoutes = require('./routes/userRoutes');
 const invitationRoutes = require('./routes/invitationRoutes');
@@ -16,16 +19,35 @@ const uploadRoutes = require('./routes/uploadRoutes');
 connectDB();
 const app = express();
 
-// Middleware
+// ==========================================
+// THE SHIELD: SECURITY MIDDLEWARE
+// ==========================================
+// Block common web vulnerabilities (XSS, Clickjacking, etc.)
+app.use(helmet());
+
+// Global Rate Limiter: Stops generic DDoS floods on your API
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // Limit each IP to 300 requests per 15 minutes
+  message: { message: "Too many requests from this IP, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply the global limiter ONLY to API routes so we don't block static assets
+app.use('/api', globalLimiter);
+// ==========================================
+
+// Standard Middleware
 app.use(cors({
     origin: [
-        'http://localhost:5173', // Keeps your local development working
-        'https://invitoinnbox.vercel.app' // Your live production frontend
+        'http://localhost:5173', // Local development
+        'https://invitoinnbox.vercel.app' // Live production frontend
     ],
-    credentials: true, // This is mandatory for your cookies to work
+    credentials: true, 
 }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Good practice for form submissions
+app.use(express.urlencoded({ extended: true })); 
 
 // 2. Mount Routes
 app.use('/api/users', userRoutes);
