@@ -15,168 +15,154 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// 1. NEW IMPORT
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
+import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
+// 2. GOOGLE CONFIG (REPLACE THIS ID TOO!)
+GoogleSignin.configure({
+  webClientId: '856841917035-fbcmm1hl3cp2i5pnq66ofpo405tgcung.apps.googleusercontent.com',
+  offlineAccess: true,
+});
+
 export default function RegisterScreen() {
   const router = useRouter();
-  
-  // Step Management
-  const [step, setStep] = useState<1 | 2>(1); // 1 = Details, 2 = Email OTP
+  const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState<boolean>(false);
+  const [googleLoading, setGoogleLoading] = useState<boolean>(false);
 
-  // Form State
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
-  
-  // OTP State
   const [otp, setOtp] = useState('');
 
-  // STEP 1: Register User
   const handleRegister = async () => {
     if (!name || !email || !password) {
       Alert.alert('Missing Fields', 'Please fill in all required fields.');
       return;
     }
-
     setLoading(true);
     try {
       const response = await axios.post(`${baseUrl}/users/register`, {
-        name,
-        email: email.toLowerCase().trim(),
-        password,
-        phoneNumber // Triggers your backend Recycle Protocol!
+        name, email: email.toLowerCase().trim(), password, phoneNumber 
       });
 
       if (response.data.requiresOTP) {
         setStep(2);
         Alert.alert('Success', 'Check your email for the verification code.');
       } else {
-        // Fallback just in case backend changes
-        Alert.alert('Unexpected Response', 'Please try logging in.');
         router.replace('/');
       }
     } catch (error: any) {
-      console.error('Registration Error:', error?.response?.data || error);
       Alert.alert('Registration Failed', error.response?.data?.message || 'Something went wrong.');
     } finally {
       setLoading(false);
     }
   };
 
-  // STEP 2: Verify Email OTP
   const handleVerifyOTP = async () => {
-    if (otp.length !== 6) {
-      Alert.alert('Invalid Code', 'Please enter the 6-digit code sent to your email.');
-      return;
-    }
-
+    if (otp.length !== 6) return;
     setLoading(true);
     try {
       const response = await axios.post(`${baseUrl}/users/verify-otp`, {
-        email: email.toLowerCase().trim(),
-        otp
+        email: email.toLowerCase().trim(), otp
       });
-
-      // OTP Verified! Log them in automatically.
       await AsyncStorage.setItem('authToken', response.data.token);
       await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
-      
-      Alert.alert('Welcome!', 'Your account has been created successfully.');
       router.replace('/dashboard');
-
     } catch (error: any) {
-      console.error('OTP Error:', error?.response?.data || error);
       Alert.alert('Verification Failed', error.response?.data?.message || 'Invalid or expired OTP.');
     } finally {
       setLoading(false);
     }
   };
 
+  // 3. NEW GOOGLE AUTH FUNCTION
+ const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    try {
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
+
+      if (response.type === 'success') {
+        const idToken = response.data?.idToken;
+
+        if (!idToken) {
+          Alert.alert('Error', 'Google failed to return an identity token.');
+          return;
+        }
+
+        const backendRes = await axios.post(`${baseUrl}/users/google-login`, {
+          idToken: idToken
+        });
+
+        await AsyncStorage.setItem('authToken', backendRes.data.token);
+        await AsyncStorage.setItem('user', JSON.stringify(backendRes.data.user));
+        
+        const pushToken = await registerForPushNotificationsAsync();
+        if (pushToken) {
+          await axios.put(
+            `${baseUrl}/users/push-token`,
+            { expoPushToken: pushToken },
+            { headers: { Authorization: `Bearer ${backendRes.data.token}` } }
+          ).catch(() => {});
+        }
+        
+        router.replace('/dashboard');
+      } else if (response.type === 'cancelled') {
+        console.log('User cancelled the login flow');
+      }
+      
+    } catch (error: any) {
+      if (error.code === statusCodes.IN_PROGRESS) {
+        console.log('Sign in is in progress already');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert('Error', 'Google Play Services not available or outdated.');
+      } else {
+        Alert.alert('Google Auth Error', error.message);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header Section */}
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>
-              {step === 1 ? "Create Account" : "Verify Email"}
-            </Text>
-            <Text style={styles.subtitle}>
-              {step === 1 
-                ? "Sign up to start hosting and managing events." 
-                : `We sent a 6-digit code to ${email}`}
-            </Text>
+            <Text style={styles.title}>{step === 1 ? "Create Account" : "Verify Email"}</Text>
+            <Text style={styles.subtitle}>{step === 1 ? "Sign up to start hosting and managing events." : `We sent a 6-digit code to ${email}`}</Text>
           </View>
 
-          {/* Form Container */}
           <View style={styles.formContainer}>
-            
             {step === 1 ? (
-              // --- STEP 1: REGISTRATION FORM ---
               <>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Full Name"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={name}
-                  onChangeText={setName}
-                  autoCorrect={false}
-                />
-                
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email address"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+                <TextInput style={styles.input} placeholder="Full Name" placeholderTextColor={COLORS.textMuted} value={name} onChangeText={setName} autoCorrect={false} />
+                <TextInput style={styles.input} placeholder="Email address" placeholderTextColor={COLORS.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+                <TextInput style={styles.input} placeholder="Phone Number (Optional)" placeholderTextColor={COLORS.textMuted} value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" />
+                <Text style={styles.helperText}>Enter the number you received an SMS invite on to link your RSVPs.</Text>
+                <TextInput style={[styles.input, { marginTop: SPACING.sm }]} placeholder="Password" placeholderTextColor={COLORS.textMuted} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number (Optional)"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  keyboardType="phone-pad"
-                />
-                <Text style={styles.helperText}>
-                  Enter the number you received an SMS invite on to link your RSVPs.
-                </Text>
+                <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRegister} disabled={loading} activeOpacity={0.8}>
+                  {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Sign Up</Text>}
+                </TouchableOpacity>
 
-                <TextInput
-                  style={[styles.input, { marginTop: SPACING.sm }]}
-                  placeholder="Password"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                />
-
-                <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={handleRegister}
-                  disabled={loading}
-                  activeOpacity={0.8}
+                {/* 4. NEW GOOGLE BUTTON */}
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: SPACING.md }]} 
+                  onPress={handleGoogleLogin}
+                  disabled={googleLoading}
                 >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.buttonText}>Sign Up</Text>
+                  {googleLoading ? <ActivityIndicator color="#374151" /> : (
+                    <>
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>🇬</Text>
+                      <Text style={{ color: '#374151', fontWeight: 'bold', fontSize: 16 }}>Continue with Google</Text>
+                    </>
                   )}
                 </TouchableOpacity>
 
@@ -188,42 +174,16 @@ export default function RegisterScreen() {
                 </View>
               </>
             ) : (
-              // --- STEP 2: OTP FORM ---
               <>
-                <TextInput
-                  style={[styles.input, { letterSpacing: 8, textAlign: 'center', fontSize: 24 }]}
-                  placeholder="000000"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={otp}
-                  onChangeText={setOtp}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                />
-
-                <TouchableOpacity
-                  style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={handleVerifyOTP}
-                  disabled={loading || otp.length !== 6}
-                  activeOpacity={0.8}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.buttonText}>Verify & Login</Text>
-                  )}
+                <TextInput style={[styles.input, { letterSpacing: 8, textAlign: 'center', fontSize: 24 }]} placeholder="000000" placeholderTextColor={COLORS.textMuted} value={otp} onChangeText={setOtp} keyboardType="number-pad" maxLength={6} />
+                <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleVerifyOTP} disabled={loading || otp.length !== 6} activeOpacity={0.8}>
+                  {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify & Login</Text>}
                 </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={{ marginTop: SPACING.lg, alignItems: 'center' }} 
-                  onPress={() => setStep(1)}
-                >
-                  <Text style={{ color: COLORS.primary, fontWeight: '600' }}>
-                    ← Back to Registration
-                  </Text>
+                <TouchableOpacity style={{ marginTop: SPACING.lg, alignItems: 'center' }} onPress={() => setStep(1)}>
+                  <Text style={{ color: COLORS.primary, fontWeight: '600' }}>← Back to Registration</Text>
                 </TouchableOpacity>
               </>
             )}
-
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -232,86 +192,19 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.screenPadding,
-    paddingVertical: SPACING.lg,
-  },
-  headerContainer: {
-    marginBottom: SPACING.xl,
-  },
-  title: {
-    ...TYPOGRAPHY.title,
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  subtitle: {
-    ...TYPOGRAPHY.bodyMuted,
-    marginBottom: SPACING.xl,
-  },
-  formContainer: {
-    backgroundColor: COLORS.card,
-    borderRadius: 16,
-    padding: SPACING.lg,
-    ...SHADOWS.card,
-  },
-  input: {
-    backgroundColor: COLORS.background,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: COLORS.text,
-    marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#9CA3AF',
-    marginBottom: SPACING.md,
-    marginTop: -8,
-    paddingHorizontal: 4,
-  },
-  button: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: SPACING.sm,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: SPACING.lg,
-    paddingTop: SPACING.md,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  footerText: {
-    ...TYPOGRAPHY.body,
-    color: '#6B7280',
-  },
-  signInLink: {
-    ...TYPOGRAPHY.body,
-    color: COLORS.primary,
-    fontWeight: 'bold',
-  },
+  safeArea: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: SPACING.screenPadding, paddingVertical: SPACING.lg },
+  headerContainer: { marginBottom: SPACING.xl },
+  title: { ...TYPOGRAPHY.title, fontSize: 32, marginBottom: 8 },
+  subtitle: { ...TYPOGRAPHY.bodyMuted, marginBottom: SPACING.xl },
+  formContainer: { backgroundColor: COLORS.card, borderRadius: 16, padding: SPACING.lg, ...SHADOWS.card },
+  input: { backgroundColor: COLORS.background, borderRadius: 12, paddingVertical: 16, paddingHorizontal: 16, fontSize: 16, color: COLORS.text, marginBottom: SPACING.md, borderWidth: 1, borderColor: '#F3F4F6' },
+  helperText: { fontSize: 12, color: '#9CA3AF', marginBottom: SPACING.md, marginTop: -8, paddingHorizontal: 4 },
+  button: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: SPACING.sm },
+  buttonDisabled: { opacity: 0.7 },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: SPACING.lg, paddingTop: SPACING.md, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  footerText: { ...TYPOGRAPHY.body, color: '#6B7280' },
+  signInLink: { ...TYPOGRAPHY.body, color: COLORS.primary, fontWeight: 'bold' },
 });
