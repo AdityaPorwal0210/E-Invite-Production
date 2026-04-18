@@ -8,7 +8,8 @@ const { OAuth2Client } = require("google-auth-library");
 const sendEmail = require("../utils/sendEmail");
 const sendPushNotification = require('../utils/pushNotification');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
+const { OAuth2Client } = require('google-auth-library');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // Generate JWT Helper Function
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
@@ -330,30 +331,53 @@ const resetPassword = async (req, res) => {
 const googleLogin = async (req, res) => {
   try {
     const { idToken } = req.body;
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
-    const payload = ticket.getPayload();
-    const { email, name, picture } = payload;
-    const cleanEmail = email.toLowerCase().trim();
 
-    let user = await User.findOne({ email: cleanEmail, isRegistered: true });
-    if (user) {
-      return res.status(200).json({
-        user: { _id: user._id, name: user.name, email: user.email, phoneNumber: user.phoneNumber, profileImage: user.profileImage || picture || '' },
-        token: generateToken(user._id)
+    if (!idToken) {
+      return res.status(400).json({ message: "Google ID token is required" });
+    }
+
+    // 1. Verify the token with Google
+    const ticket = await client.verifyIdToken({
+      idToken: idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload.email.toLowerCase().trim();
+    const name = payload.name;
+
+    // 2. Check if the user already exists in your database
+    let user = await User.findOne({ email });
+
+    // 3. If they don't exist, register them silently
+    if (!user) {
+      user = await User.create({
+        name: name,
+        email: email,
+        // Give them a random impossible password since they use Google
+        password: Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10),
+        isVerified: true // Google emails are inherently verified
       });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(Math.random().toString(36), salt);
-    user = await User.findOneAndUpdate(
-      { email: cleanEmail },
-      { name, password: hashedPassword, profileImage: picture, isRegistered: true, isVerified: true },
-      { upsert: true, returnDocument: 'after' }
-    );
+    // 4. Generate your standard JWT for the app session
+    const token = generateToken(user._id); // Ensure you are calling your standard token generator here
 
-    res.status(200).json({ user, token: generateToken(user._id) });
+    // 5. Send success response
+    res.status(200).json({
+      message: "Google login successful",
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+
   } catch (error) {
-    res.status(500).json({ message: "Google login failed" });
+    console.error("Google Auth Backend Error:", error);
+    res.status(500).json({ message: "Failed to verify Google token", error: error.message });
   }
 };
 
