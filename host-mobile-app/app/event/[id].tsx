@@ -114,6 +114,21 @@ export default function EventDetailsHub() {
     };
   }, [id]);
 
+    // NEW TIME FORMATTER
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return 'Date TBA';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   const silentRefresh = async () => {
     try {
       const token = await AsyncStorage.getItem('authToken');
@@ -677,9 +692,9 @@ export default function EventDetailsHub() {
           )}
 
           <View style={styles.infoRow}>
-            <Text style={styles.icon}>📅</Text>
-            <Text style={styles.infoText}>{new Date(invitation.eventDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
-          </View>
+  <Text style={styles.icon}>📅</Text>
+  <Text style={styles.infoText}>{formatDateTime(invitation.eventDate)}</Text>
+</View>
           
           <TouchableOpacity style={styles.infoRow} onPress={invitation.googleMapsLink ? () => Linking.openURL(invitation.googleMapsLink) : undefined} disabled={!invitation.googleMapsLink}>
             <Text style={styles.icon}>📍</Text>

@@ -79,14 +79,18 @@ export default function SavedScreen() {
     router.push(`/event/${id}`);
   };
 
-  const formatDate = (dateString: string) => {
+ const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
+      // Changed from toLocaleDateString to toLocaleString
+      return date.toLocaleString('en-US', {
         weekday: 'short',
         year: 'numeric',
         month: 'short',
         day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
       });
     } catch {
       return dateString;

@@ -76,6 +76,19 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchCounts]);
 
+  // NEW TIME FORMATTER
+const formatDateTime = (dateString?: string) => {
+      if (!dateString) return 'Date not set';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   // --- TOAST TRIGGER ---
   useEffect(() => {
     const currentCount = notificationCounts.pendingInvites || 0;
@@ -265,8 +278,8 @@ export default function Dashboard() {
           </View>
           
           <Text style={styles.cardDate}>
-            {item.eventDate ? new Date(item.eventDate).toLocaleDateString() : 'Date not set'}
-          </Text>
+  {formatDateTime(item.eventDate)}
+</Text>
           <Text style={styles.cardLocation} numberOfLines={1}>
             {item.location || 'Location not set'}
           </Text>
