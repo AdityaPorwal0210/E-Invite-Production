@@ -404,12 +404,14 @@ const InvitationDetail = () => {
     return (match && match[2].length === 11) ? match[2] : null;
   };
 
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
-  };
+const formatDateTime = (dateString) => {
+  if (!dateString) return 'Date TBA';
+  const date = new Date(dateString);
+  return date.toLocaleString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', 
+    day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+  });
+};
 
   const handleScroll = () => {
     if (sliderRef.current) {
