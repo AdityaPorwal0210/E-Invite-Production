@@ -83,7 +83,7 @@ const PublicInvite = () => {
             <div className="space-y-3 mb-6">
               <div className="flex items-center text-gray-600">
                 <span className="text-xl mr-3">📅</span>
-                <span className="font-medium">{formatDate(event.eventDate)}</span>
+                <span className="font-medium">{formatDateTime(event.eventDate)}</span>
               </div>
               
               <div className="flex items-center text-gray-600">

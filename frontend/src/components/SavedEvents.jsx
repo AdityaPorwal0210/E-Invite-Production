@@ -155,7 +155,7 @@ const SavedEvents = () => {
                   </h2>
                   
                   <p className="text-sm text-gray-500 mb-2">
-                    {formatDate(invitation.eventDate)}
+                    {formatDateTime(invitation.eventDate)}
                   </p>
                   
                   <p className="text-sm text-gray-600 mb-2">

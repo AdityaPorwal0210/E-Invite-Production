@@ -442,7 +442,7 @@ const formatDateTime = (dateString) => {
 
   const handleWhatsAppShare = () => {
     const eventUrl = window.location.href; 
-    const message = `Hey! I'm hosting "${invitation.title}" on ${formatDate(invitation.eventDate)} at ${invitation.location}. \n\nClick here to view details and RSVP: ${eventUrl}`;
+    const message = `Hey! I'm hosting "${invitation.title}" on ${formatDateTime(invitation.eventDate)} at ${invitation.location}. \n\nClick here to view details and RSVP: ${eventUrl}`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
   };
@@ -528,7 +528,7 @@ const formatDateTime = (dateString) => {
             
             {/* The Hook: Showing the date pulls them in before asking for a login */}
             <p className="font-medium text-indigo-600 mb-8 text-xl">
-              {invitation.eventDate ? formatDate(invitation.eventDate) : 'Date & Time TBA'}
+              {invitation.eventDate ? formatDateTime(invitation.eventDate) : 'Date & Time TBA'}
             </p>
 
             <div className="border-t pt-8">
@@ -611,7 +611,7 @@ const formatDateTime = (dateString) => {
           </div>
 
           <div className="space-y-4 mb-8">
-            <div className="flex items-center text-gray-600"><span className="text-xl mr-3">📅</span><span className="font-medium">{formatDate(invitation.eventDate)}</span></div>
+            <div className="flex items-center text-gray-600"><span className="text-xl mr-3">📅</span><span className="font-medium">{formatDateTime(invitation.eventDate)}</span></div>
             <div className="flex items-center text-gray-600">
               <span className="text-xl mr-3">📍</span><span className="font-medium">{invitation.location}</span>
               {invitation.googleMapsLink && <a href={invitation.googleMapsLink} target="_blank" rel="noopener noreferrer" className="ml-2 text-sm text-blue-600 hover:underline">View on Maps</a>}

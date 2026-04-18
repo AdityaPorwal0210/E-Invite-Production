@@ -79,23 +79,14 @@ export default function SavedScreen() {
     router.push(`/event/${id}`);
   };
 
- const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      // Changed from toLocaleDateString to toLocaleString
-      return date.toLocaleString('en-US', {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-    } catch {
-      return dateString;
-    }
-  };
+ const formatDateTime = (dateString?: string) => {
+  if (!dateString) return 'Date TBA';
+  const date = new Date(dateString);
+  return date.toLocaleString('en-US', {
+    weekday: 'short', year: 'numeric', month: 'short', 
+    day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+  });
+};
 
   const renderEventCard = ({ item }: { item: SavedInvitation }) => (
     <TouchableOpacity
@@ -118,7 +109,7 @@ export default function SavedScreen() {
         
         <View style={styles.eventMetaRow}>
           <Text style={styles.eventIcon}>📅</Text>
-          <Text style={styles.eventDate}>{formatDate(item.eventDate)}</Text>
+          <Text style={styles.eventDate}>{formatDateTime(item.eventDate)}</Text>
         </View>
         
         {item.location && (
