@@ -363,6 +363,7 @@ const googleLogin = async (req, res) => {
     const token = generateToken(user._id); // Ensure you are calling your standard token generator here
 
     // 5. Send success response
+    // 5. Send success response
     res.status(200).json({
       message: "Google login successful",
       token,
@@ -370,6 +371,9 @@ const googleLogin = async (req, res) => {
         _id: user._id,
         name: user.name,
         email: user.email,
+        phoneNumber: user.phoneNumber, // ADD THIS
+        profileImage: user.profileImage || '', // ADD THIS
+        isPhoneVerified: user.isPhoneVerified || false, // ADD THIS
         role: user.role
       }
     });
