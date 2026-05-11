@@ -11,6 +11,31 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 
+// ==========================================
+// THE GLOBAL AXIOS OVERRIDE (THE SAFETY NET)
+// ==========================================
+axios.defaults.baseURL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
+
+axios.interceptors.request.use(
+  async (config) => {
+    // Only intercept if we are hitting our own backend (prevent leaking token to third parties)
+    const isOurApi = !config.url?.startsWith('http') || config.url?.includes('invitoinbox.onrender.com');
+    
+    if (isOurApi) {
+      const token = await AsyncStorage.getItem('authToken');
+      if (token) {
+        // This will override any missing tokens globally
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+// ==========================================
+
 // Tell the app how to handle notifications when it is actively open on the screen
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -31,7 +56,6 @@ export default function RootLayout() {
       console.log('🔗 Deep Link Caught:', url);
       const parsedUrl = Linking.parse(url);
       
-      // If the URL contains '/invitation/', grab the ID and route to the event screen
       // If the URL contains '/invitation/', grab the ID and route to the event screen
       if (parsedUrl.path && parsedUrl.path.includes('invitation/')) {
         const rawId = parsedUrl.path.split('invitation/').pop();
@@ -95,10 +119,9 @@ export default function RootLayout() {
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken && token) {
         try {
-          await axios.put(`https://invitoinbox.onrender.com/api/users/push-token`, 
-            { expoPushToken: token }, 
-            { headers: { Authorization: `Bearer ${authToken}` } }
-          );
+          // Because of the global override above, we don't even need to pass the headers here anymore.
+          // The interceptor will attach the token automatically.
+          await axios.put(`/users/push-token`, { expoPushToken: token });
           console.log("✅ Token saved to database");
         } catch (err) {
           console.log("❌ Failed to save token to database", err);

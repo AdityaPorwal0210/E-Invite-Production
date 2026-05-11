@@ -13,25 +13,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useFocusEffect } from 'expo-router';
-import axios from 'axios';
+// 1. USE THE INTERCEPTOR, NOT RAW AXIOS
+import api from '../utils/api'; 
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
-
-const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
-
+import { GoogleSignin } from '@react-native-google-signin/google-signin'; 
 export default function ProfileScreen() {
   const router = useRouter();
   
-  // States
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   
-  // User Data
   const [user, setUser] = useState<any>(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
 
-  // Fetch user data when screen focuses
   useFocusEffect(
     useCallback(() => {
       loadUserData();
@@ -47,7 +43,6 @@ export default function ProfileScreen() {
         setEditName(parsedUser.name || '');
         setEditPhone(parsedUser.phoneNumber || '');
       } else {
-        // If no user is found, kick them to login
         router.replace('/');
       }
     } catch (error) {
@@ -64,25 +59,17 @@ export default function ProfileScreen() {
 
     setSaving(true);
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      
-      // Clean phone number (strip non-digits, keep + if present)
       const cleanPhone = editPhone ? editPhone.replace(/[^0-9+]/g, '') : '';
 
-      const response = await axios.put(
-        `${baseUrl}/users/profile`,
-        { 
-          name: editName,
-          phoneNumber: cleanPhone
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // 2. LET THE INTERCEPTOR HANDLE THE TOKEN
+      const response = await api.put('/users/profile', { 
+        name: editName,
+        phoneNumber: cleanPhone
+      });
 
-      // 1. Update local state
       const updatedUser = { ...user, ...response.data };
       setUser(updatedUser);
       
-      // 2. Update AsyncStorage so the rest of the app sees the changes immediately
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
       
       Alert.alert('Success', 'Profile updated successfully.');
@@ -94,6 +81,9 @@ export default function ProfileScreen() {
     }
   };
 
+// Make sure this is imported at the very top of your Profile file:
+// import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
   const handleLogout = async () => {
     Alert.alert(
       "Logout",
@@ -104,8 +94,18 @@ export default function ProfileScreen() {
           text: "Logout", 
           style: "destructive",
           onPress: async () => {
+            // 1. Tell the native OS to kill the Google session
+            try {
+              await GoogleSignin.signOut();
+            } catch (error) {
+              // Silently fail if they logged in via standard email/password instead of Google
+            }
+
+            // 2. Kill the app's local storage
             await AsyncStorage.removeItem('authToken');
             await AsyncStorage.removeItem('user');
+            
+            // 3. Kick them out
             router.replace('/');
           }
         }
@@ -124,13 +124,9 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              const token = await AsyncStorage.getItem('authToken');
-              
-              await axios.delete(`${baseUrl}/users/profile`, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
+              // 3. LET THE INTERCEPTOR HANDLE THE TOKEN
+              await api.delete('/users/profile');
 
-              // Clear local storage
               await AsyncStorage.multiRemove(['authToken', 'user']);
               
               Alert.alert('Account Deleted', 'Your account has been permanently deleted.', [
@@ -157,7 +153,6 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
-        {/* HEADER */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>My Profile</Text>
           {!isEditing ? (
@@ -166,7 +161,6 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity onPress={() => {
-              // Revert changes on cancel
               setEditName(user?.name || '');
               setEditPhone(user?.phoneNumber || '');
               setIsEditing(false);
@@ -176,7 +170,6 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* PROFILE CARD */}
         <View style={styles.card}>
           <View style={styles.avatarContainer}>
             {user?.profileImage ? (
@@ -188,7 +181,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* EMAIL (Read-only since your backend requires OTP verification to change emails) */}
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Email Address</Text>
             <View style={styles.readOnlyField}>
@@ -197,7 +189,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* NAME */}
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Full Name</Text>
             {isEditing ? (
@@ -213,7 +204,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* PHONE NUMBER */}
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Phone Number</Text>
             {isEditing ? (
@@ -235,7 +225,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* ACTION BUTTONS */}
           {isEditing && (
             <TouchableOpacity 
               style={styles.saveBtn} 
@@ -247,14 +236,12 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* LOGOUT BUTTON */}
         {!isEditing && (
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
             <Text style={styles.logoutBtnText}>Logout</Text>
           </TouchableOpacity>
         )}
 
-        {/* DELETE ACCOUNT BUTTON */}
         {!isEditing && (
           <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
             <Text style={styles.deleteBtnText}>Delete Account</Text>

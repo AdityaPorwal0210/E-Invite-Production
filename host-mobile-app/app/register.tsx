@@ -15,14 +15,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// 1. NEW IMPORT
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
-// 2. GOOGLE CONFIG (REPLACE THIS ID TOO!)
 GoogleSignin.configure({
   webClientId: '856841917035-fbcmm1hl3cp2i5pnq66ofpo405tgcung.apps.googleusercontent.com',
   offlineAccess: true,
@@ -39,6 +37,37 @@ export default function RegisterScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
+
+  const handleLoginSuccess = async (token: string, userData: any) => {
+    try {
+      await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      
+      const pushToken = await registerForPushNotificationsAsync();
+      if (pushToken) {
+        try {
+          await axios.put(
+            `${baseUrl}/users/push-token`,
+            { expoPushToken: pushToken },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        } catch (tokenError) {
+          console.log('⚠️ Failed to save push token');
+        }
+      }
+      
+      const pendingRoute = await AsyncStorage.getItem('pendingRoute');
+      if (pendingRoute) {
+        await AsyncStorage.removeItem('pendingRoute');
+        router.replace('/dashboard');
+        setTimeout(() => router.push(pendingRoute as any), 500);
+      } else {
+        router.replace('/dashboard'); 
+      }
+    } catch (error) {
+      router.replace('/dashboard');
+    }
+  };
 
   const handleRegister = async () => {
     if (!name || !email || !password) {
@@ -71,9 +100,8 @@ export default function RegisterScreen() {
       const response = await axios.post(`${baseUrl}/users/verify-otp`, {
         email: email.toLowerCase().trim(), otp
       });
-      await AsyncStorage.setItem('authToken', response.data.token);
-      await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
-      router.replace('/dashboard');
+      // Unified login success handling
+      await handleLoginSuccess(response.data.token, response.data.user);
     } catch (error: any) {
       Alert.alert('Verification Failed', error.response?.data?.message || 'Invalid or expired OTP.');
     } finally {
@@ -81,8 +109,7 @@ export default function RegisterScreen() {
     }
   };
 
-  // 3. NEW GOOGLE AUTH FUNCTION
- const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
       await GoogleSignin.hasPlayServices();
@@ -100,19 +127,9 @@ export default function RegisterScreen() {
           idToken: idToken
         });
 
-        await AsyncStorage.setItem('authToken', backendRes.data.token);
-        await AsyncStorage.setItem('user', JSON.stringify(backendRes.data.user));
+        // Unified login success handling
+        await handleLoginSuccess(backendRes.data.token, backendRes.data.user);
         
-        const pushToken = await registerForPushNotificationsAsync();
-        if (pushToken) {
-          await axios.put(
-            `${baseUrl}/users/push-token`,
-            { expoPushToken: pushToken },
-            { headers: { Authorization: `Bearer ${backendRes.data.token}` } }
-          ).catch(() => {});
-        }
-        
-        router.replace('/dashboard');
       } else if (response.type === 'cancelled') {
         console.log('User cancelled the login flow');
       }
@@ -152,7 +169,6 @@ export default function RegisterScreen() {
                   {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Sign Up</Text>}
                 </TouchableOpacity>
 
-                {/* 4. NEW GOOGLE BUTTON */}
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: SPACING.md }]} 
                   onPress={handleGoogleLogin}

@@ -14,15 +14,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
+import  {useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// 1. NEW IMPORT
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import { registerForPushNotificationsAsync } from '../utils/pushNotifications';
 
 const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
-// 2. GOOGLE CONFIG (REPLACE THIS ID!)
 GoogleSignin.configure({
   webClientId: '856841917035-fbcmm1hl3cp2i5pnq66ofpo405tgcung.apps.googleusercontent.com',
   offlineAccess: true,
@@ -30,6 +29,23 @@ GoogleSignin.configure({
 
 export default function LoginScreen() {
   const router = useRouter();
+  // --- THE BOUNCER (SESSION CHECK) ---
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        if (token) {
+          // Token exists! Bypass the login screen immediately.
+          router.replace('/dashboard');
+        }
+      } catch (error) {
+        console.error("Error checking session:", error);
+      }
+    };
+    
+    checkExistingSession();
+  }, []);
+  // ------------------------------------
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
@@ -85,8 +101,7 @@ export default function LoginScreen() {
     }
   };
 
-  // 3. NEW GOOGLE AUTH FUNCTION
- const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
       await GoogleSignin.hasPlayServices();
@@ -100,7 +115,6 @@ export default function LoginScreen() {
           return;
         }
 
-        // Sends token to backend to verify and log the user in
         const backendRes = await axios.post(`${baseUrl}/users/google-login`, {
           idToken: idToken
         });
@@ -157,7 +171,6 @@ export default function LoginScreen() {
               {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Sign In</Text>}
             </TouchableOpacity>
 
-            {/* 4. NEW GOOGLE BUTTON */}
             <TouchableOpacity 
               style={[styles.button, { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: SPACING.md }]} 
               onPress={handleGoogleLogin}
