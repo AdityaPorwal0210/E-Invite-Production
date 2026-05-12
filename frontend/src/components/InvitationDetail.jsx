@@ -6,6 +6,7 @@ import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
 import { generateGoogleCalendarLink, downloadICS } from '../utils/calendar.js';
+import { optimizeCloudinaryUrl } from '../utils/optimizeImage';
 
 // Connect to the backend socket server
 const SOCKET_URL = 'https://invitoinbox.onrender.com';
@@ -508,7 +509,7 @@ const InvitationDetail = () => {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
         <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl overflow-hidden">
           {invitation.coverImage ? (
-            <img src={invitation.coverImage} alt="Event Cover" className="w-full h-64 object-cover" crossOrigin="anonymous"/>
+            <img src={optimizeCloudinaryUrl(invitation.coverImage, 1024)} alt="Event Cover" className="w-full h-64 object-cover" crossOrigin="anonymous"/>
           ) : (
             <div className="w-full h-64 bg-gray-200 flex items-center justify-center text-5xl">📅</div>
           )}
@@ -544,10 +545,11 @@ const InvitationDetail = () => {
 
   // ============ FULL APP RENDER ============
   const attachments = invitation?.attachments || [];
-  const imageFiles = [
+  const rawImages = [
     ...(invitation?.coverImage ? [invitation.coverImage] : []),
     ...attachments.filter(a => a.fileType?.includes('image')).map(a => a.url)
   ];
+  const imageFiles = rawImages.map(img => optimizeCloudinaryUrl(img, 1024));
   const pdfFiles = attachments.filter(a => a.fileType?.includes('pdf'));
 
   return (

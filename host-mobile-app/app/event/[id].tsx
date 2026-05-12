@@ -18,6 +18,7 @@ import { io } from 'socket.io-client';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 import ImageCarousel from '../../components/ImageCarousel';
 import { generateGoogleCalendarLink } from '../../utils/calendar';
+import { optimizeCloudinaryUrl } from '../../utils/optimizeImage';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 const BASE_URL = API_URL.replace('/api', '');
@@ -616,7 +617,8 @@ export default function EventDetailsHub() {
     return name.toLowerCase().includes(query) || email.toLowerCase().includes(query);
   });
 
-  const allImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
+  const rawImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
+  const allImages = rawImages.map((img: string) => optimizeCloudinaryUrl(img, 800));
 
   return (
     <>

@@ -12,19 +12,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 
 // ==========================================
-// THE GLOBAL AXIOS OVERRIDE (THE SAFETY NET)
+// THE GLOBAL AXIOS OVERRIDE
 // ==========================================
 axios.defaults.baseURL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 
 axios.interceptors.request.use(
   async (config) => {
-    // Only intercept if we are hitting our own backend (prevent leaking token to third parties)
+    // Only intercept if we are hitting our own backend
     const isOurApi = !config.url?.startsWith('http') || config.url?.includes('invitoinbox.onrender.com');
     
     if (isOurApi) {
       const token = await AsyncStorage.getItem('authToken');
       if (token) {
-        // This will override any missing tokens globally
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
@@ -34,9 +33,10 @@ axios.interceptors.request.use(
     return Promise.reject(error);
   }
 );
-// ==========================================
 
-// Tell the app how to handle notifications when it is actively open on the screen
+// ==========================================
+// FOREGROUND NOTIFICATION HANDLER
+// ==========================================
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -50,23 +50,22 @@ export default function RootLayout() {
   const router = useRouter();
   const url = Linking.useURL();
 
-  // --- THE DEEP LINK CATCHER ---
+  // ==========================================
+  // 1. BROWSER DEEP LINK CATCHER
+  // Handles links clicked from WhatsApp/Email
+  // ==========================================
   useEffect(() => {
     if (url) {
-      console.log('🔗 Deep Link Caught:', url);
+      console.log('🔗 Browser Deep Link Caught:', url);
       const parsedUrl = Linking.parse(url);
       
-      // If the URL contains '/invitation/', grab the ID and route to the event screen
       if (parsedUrl.path && parsedUrl.path.includes('invitation/')) {
         const rawId = parsedUrl.path.split('invitation/').pop();
         
-        // TS FIX: Guarantee rawId exists before operating on it
         if (rawId) {
-          // Sanitize: Strip any accidentally attached query params or slashes
           const cleanId = rawId.split('?')[0].replace(/\//g, '');
           
           if (cleanId) {
-            // Add a tiny delay to ensure navigation is ready if it's a cold start
             setTimeout(() => {
               router.push(`/event/${cleanId}`);
             }, 500);
@@ -76,7 +75,30 @@ export default function RootLayout() {
     }
   }, [url]);
 
-  // --- PUSH NOTIFICATION HARVESTER ---
+  // ==========================================
+  // 2. PUSH NOTIFICATION TAP CATCHER
+  // Handles users tapping a notification banner
+  // ==========================================
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      // Extract the custom URL we packed into the backend cron job payload
+      const urlFromNotify = response.notification.request.content.data?.url;
+      
+      // TS FIX: Explicitly check that it exists AND is a string
+      if (urlFromNotify && typeof urlFromNotify === 'string') {
+        console.log('🔔 Notification Tap Caught URL:', urlFromNotify);
+        // Strip the custom scheme so the router understands the path
+        const path = urlFromNotify.replace('hostapp://', '/');
+        router.push(path as any);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [router]);
+
+  // ==========================================
+  // 3. PUSH NOTIFICATION REGISTRATION
+  // ==========================================
   useEffect(() => {
     registerForPushNotificationsAsync();
   }, []);
@@ -84,7 +106,6 @@ export default function RootLayout() {
   const registerForPushNotificationsAsync = async () => {
     let token;
 
-    // Android requires specific channel configuration
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
@@ -94,12 +115,10 @@ export default function RootLayout() {
       });
     }
 
-    // Push notifications do not work on iOS Simulators, must check for physical device
     if (Device.isDevice) {
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
       
-      // If we don't have permission, explicitly ask the user for it
       if (existingStatus !== 'granted') {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
@@ -110,24 +129,19 @@ export default function RootLayout() {
         return;
       }
       
-      // Grab the unique device token from Expo's servers
       const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
       token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       console.log("🔥 EXPO PUSH TOKEN:", token);
 
-      // Securely vault the token in your backend if the user is currently logged in
       const authToken = await AsyncStorage.getItem('authToken');
       if (authToken && token) {
         try {
-          // Because of the global override above, we don't even need to pass the headers here anymore.
-          // The interceptor will attach the token automatically.
           await axios.put(`/users/push-token`, { expoPushToken: token });
           console.log("✅ Token saved to database");
         } catch (err) {
           console.log("❌ Failed to save token to database", err);
         }
       }
-
     } else {
       console.log('Running on simulator: Skipping push notification registration.');
     }
@@ -139,11 +153,9 @@ export default function RootLayout() {
     <>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
-        {/* Note: I am leaving your invitation/[id] screen here just in case, but deep links will now route to event/[id] */}
         <Stack.Screen name="invitation/[id]" />
+        {/* Make sure event/[id] exists in your app folder since we route to it */}
       </Stack>
-      
-      {/* 🚨 This MUST sit here so it renders globally over all screens */}
       <Toast />
     </>
   );

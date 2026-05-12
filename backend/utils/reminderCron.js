@@ -48,11 +48,15 @@ const startReminderCron = () => {
           
           if (guestUser && guestUser.expoPushToken) {
             try {
-              await sendPushNotification(
+             await sendPushNotification(
                 guestUser.expoPushToken,
                 "Reminder: Event Tomorrow! ⏰",
                 `Get ready! "${event.title}" is happening in exactly 24 hours.`,
-                { eventId: event._id.toString() }
+                { 
+                  eventId: event._id.toString(),
+                  // Logic: Tell the app exactly which path to open
+                  url: `hostapp://event/${event._id.toString()}` 
+                }
               );
               sentCount++;
             } catch (pushErr) {
