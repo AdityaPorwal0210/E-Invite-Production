@@ -352,7 +352,10 @@ const googleLogin = async (req, res) => {
     // 1. Verify the token with Google
     const ticket = await client.verifyIdToken({
       idToken: idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: [
+        process.env.GOOGLE_CLIENT_ID, 
+        process.env.VITE_GOOGLE_CLIENT_ID // Or whatever you named the web ID in your backend .env
+      ],
     });
 
     const payload = ticket.getPayload();

@@ -20,6 +20,12 @@ connectDB();
 const app = express();
 
 // ==========================================
+// CRITICAL FIX: Trust the Render Reverse Proxy
+// Without this, the rate limiter bans everyone simultaneously.
+// ==========================================
+app.set('trust proxy', 1);
+
+// ==========================================
 // THE SHIELD: SECURITY MIDDLEWARE
 // ==========================================
 // Block common web vulnerabilities (XSS, Clickjacking, etc.)
