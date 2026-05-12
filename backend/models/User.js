@@ -49,10 +49,6 @@ const userSchema = new mongoose.Schema({
   secondaryPhoneOtpExpires: {
     type: Date
   },
-  expoPushToken: {
-  type: String,
-  default: ''
-  },
   isVerified: {
     type: Boolean,
     default: false

@@ -57,7 +57,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSaveProfile = async () => {
+ const handleSaveProfile = async () => {
     if (!editName.trim()) {
       return Alert.alert('Error', 'Name cannot be empty.');
     }
@@ -67,11 +67,13 @@ export default function ProfileScreen() {
       const cleanPhone = editPhone ? editPhone.replace(/[^0-9+]/g, '') : '';
       const cleanSecondaryPhone = editSecondaryPhone ? editSecondaryPhone.replace(/[^0-9+]/g, '') : '';
 
-      const response = await api.put('/users/profile', { 
-        name: editName,
-        phoneNumber: cleanPhone,
-        secondaryPhone: cleanSecondaryPhone || null,
-      });
+      // Only send phone numbers if the user is trying to DELETE them (empty string)
+      // Otherwise, we do not send them in this payload. They must be verified via OTP.
+      const payload: any = { name: editName };
+      if (cleanPhone === '') payload.phoneNumber = null;
+      if (cleanSecondaryPhone === '') payload.secondaryPhone = null;
+
+      const response = await api.put('/users/profile', payload);
 
       const updatedUser = { ...user, ...response.data };
       setUser(updatedUser);

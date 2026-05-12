@@ -274,15 +274,26 @@ const deleteUserProfile = async (req, res) => {
 };
 
 // @desc    Update user profile
+// @desc    Update user profile
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     const { name, phoneNumber, secondaryPhone, profileImage } = req.body;
     const updateData = {};
+    
     if (name) updateData.name = name;
-    if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
-    if (secondaryPhone !== undefined) updateData.secondaryPhone = secondaryPhone || null;
     if (profileImage !== undefined) updateData.profileImage = profileImage;
+
+    // SECURITY LOCKDOWN: Users cannot bypass OTP by injecting phone numbers here.
+    // They can ONLY use this route to delete a number (set to null/empty).
+    if (phoneNumber === null || phoneNumber === "") {
+      updateData.phoneNumber = null;
+      updateData.isPhoneVerified = false;
+    }
+    if (secondaryPhone === null || secondaryPhone === "") {
+      updateData.secondaryPhone = null;
+      updateData.isSecondaryPhoneVerified = false;
+    }
 
     const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' }).select('-password');
     res.status(200).json(user);
