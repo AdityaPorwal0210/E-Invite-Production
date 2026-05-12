@@ -65,6 +65,10 @@ const invitationSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
     },
+    reminderSent: {
+    type: Boolean,
+    default: false
+  },
     rsvpStatus: {
       type: String,
       enum: ['Pending', 'Attending', 'Declined'],

@@ -1,7 +1,6 @@
 const cron = require('node-cron');
 const Invitation = require('../models/Invitation');
 const ReceivedInvitation = require('../models/ReceivedInvitation');
-const User = require('../models/User');
 const sendPushNotification = require('./pushNotification');
 
 const startReminderCron = () => {
@@ -10,17 +9,18 @@ const startReminderCron = () => {
     console.log('🤖 CRON WAKEUP: Checking for 24-hour event reminders...');
 
     try {
-      // 1. Define our time window (Events happening exactly 24 to 25 hours from right now)
       const now = new Date();
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const tomorrowPlusOneHour = new Date(tomorrow.getTime() + 60 * 60 * 1000);
+      // Look for events happening between 23 and 24 hours from right now
+      const windowStart = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+      const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-      // 2. Find all events starting in that specific 1-hour window
+      // 1. Find events in the window that HAVE NOT been processed yet
       const upcomingEvents = await Invitation.find({
         eventDate: {
-          $gte: tomorrow,
-          $lt: tomorrowPlusOneHour
-        }
+          $gte: windowStart,
+          $lt: windowEnd
+        },
+        reminderSent: { $ne: true } // THE SAFETY LOCK
       });
 
       if (upcomingEvents.length === 0) {
@@ -28,28 +28,39 @@ const startReminderCron = () => {
         return;
       }
 
-      // 3. For each event, find the guests and send the ping
+      // 2. Process each event
       for (const event of upcomingEvents) {
-        // Find everyone who RSVP'd "accepted" (Going) to this specific event
+        // 🚨 LOCK THE EVENT IMMEDIATELY to prevent duplicate processing 
+        event.reminderSent = true;
+        await event.save();
+
+        // 3. Find everyone who RSVP'd "accepted" (Going) 
+        // Use .populate() to get the User data in ONE query instead of a loop
         const guests = await ReceivedInvitation.find({
           invitation: event._id,
           rsvpStatus: 'accepted'
-        });
+        }).populate('recipient');
+
+        let sentCount = 0;
 
         for (const guestRecord of guests) {
-          // Look up their user profile to get their Push Token
-          const guestUser = await User.findById(guestRecord.recipient);
+          const guestUser = guestRecord.recipient;
           
           if (guestUser && guestUser.expoPushToken) {
-            await sendPushNotification(
-              guestUser.expoPushToken,
-              "Reminder: Event Tomorrow! ⏰",
-              `Get ready! "${event.title}" is happening in exactly 24 hours.`,
-              { eventId: event._id }
-            );
+            try {
+              await sendPushNotification(
+                guestUser.expoPushToken,
+                "Reminder: Event Tomorrow! ⏰",
+                `Get ready! "${event.title}" is happening in exactly 24 hours.`,
+                { eventId: event._id.toString() }
+              );
+              sentCount++;
+            } catch (pushErr) {
+              console.error(`Failed to send push to ${guestUser.email}:`, pushErr.message);
+            }
           }
         }
-        console.log(`✅ Sent ${guests.length} reminders for event: ${event.title}`);
+        console.log(`✅ Sent ${sentCount} reminders for event: ${event.title}`);
       }
     } catch (error) {
       console.error('❌ CRON ERROR: Failed to process event reminders:', error);
