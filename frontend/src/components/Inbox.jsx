@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
@@ -9,10 +9,11 @@ const Inbox = () => {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('upcoming');
   
-  const { user, fetchNotificationCounts } = useContext(AuthContext);
+  const { fetchNotificationCounts } = useContext(AuthContext);
   const navigate = useNavigate();
 
- const fetchReceivedInvitations = async () => {
+  // Wrapped in useCallback to prevent infinite render loops
+  const fetchReceivedInvitations = useCallback(async () => {
     try {
       const response = await api.get('/invitations/received');
       
@@ -25,20 +26,28 @@ const Inbox = () => {
       setError(err.response?.data?.message || 'Failed to fetch invitations');
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchReceivedInvitations();
   }, []);
 
-const formatDateTime = (dateString) => {
-  if (!dateString) return 'Date TBA';
-  const date = new Date(dateString);
-  return date.toLocaleString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', 
-    day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
-  });
-};
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await fetchReceivedInvitations();
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    loadData();
+  }, [fetchReceivedInvitations]);
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'Date TBA';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', 
+      day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+    });
+  };
 
   // Filter events into upcoming and past
   const today = new Date();

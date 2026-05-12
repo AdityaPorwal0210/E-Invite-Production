@@ -1,6 +1,5 @@
-import { useState, useEffect, useContext, useRef } from 'react';
+import { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import ReactPlayer from 'react-player';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
@@ -36,8 +35,6 @@ const InvitationDetail = () => {
   const [userSearch, setUserSearch] = useState('');
   const [userResults, setUserResults] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
-  const [userSalutations, setUserSalutations] = useState({});
-  const [searchingUsers, setSearchingUsers] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -81,21 +78,98 @@ const InvitationDetail = () => {
 
   // 3. If they are EITHER, they get the admin dashboard.
   const isOwner = isPrimaryHost || isDelegate;
-  const guestList = invitation?.guestList || [];
-  const pendingGuests = invitation?.pendingGuestEmails || [];
+  
+  // FIX: Memoize arrays to prevent exhaustive-deps triggering infinite loops
+  const guestList = useMemo(() => invitation?.guestList || [], [invitation?.guestList]);
+  const pendingGuests = useMemo(() => invitation?.pendingGuestEmails || [], [invitation?.pendingGuestEmails]);
+
+  // ============ MEMOIZED FUNCTIONS ============
+  const fetchInvitation = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    
+    try {
+      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
+      const response = await api.get(endpoint);
+      setInvitation(response.data);
+      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
+      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
+      if (!silent) setLoading(false);
+    } catch (err) {
+      console.error('fetchInvitation error:', err);
+      if (!silent && !err.response) {
+        setError('Failed to load event. Please refresh the page.');
+      }
+      if (!silent) setLoading(false);
+    }
+  }, [id, user]);
+
+  const refreshInvitationData = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const endpoint = `/invitations/${id}`;
+      const response = await api.get(endpoint);
+      setInvitation(response.data);
+      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
+      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
+    } catch (err) {
+      console.error('❌ Background refresh failed:', err.message);
+    }
+  }, [id, user]);
+
+  const fetchGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    try {
+      const response = await api.get('/groups');
+      const alreadyShared = invitation?.sharedGroups?.map(g => g._id || g) || [];
+      const processed = (response.data || []).map(g => ({
+        ...g,
+        isAlreadyShared: alreadyShared.includes(g._id)
+      }));
+      setGroups(processed);
+    } catch (err) {
+      console.error('Failed to fetch groups:', err);
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, [invitation?.sharedGroups]);
+
+  const searchUsers = useCallback(async (query) => {
+    try {
+      const response = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
+      const guestListIds = guestList.map(g => getStringId(g.recipient?._id));
+      const invitedUserIds = invitation?.invitedUsers?.map(u => getStringId(u._id)) || [];
+      const hostUserId = getStringId(invitation?.host?._id);
+
+      const processed = response.data.map(u => {
+        const userId = getStringId(u._id);
+        return {
+          ...u,
+          isAlreadyInvited: guestListIds.includes(userId) || invitedUserIds.includes(userId),
+          isHost: userId === hostUserId
+        };
+      });
+
+      setUserResults(processed.filter(u => !u.isHost));
+    } catch (err) {
+      console.error('Failed to search users:', err);
+    }
+  }, [guestList, invitation?.invitedUsers, invitation?.host]);
 
   // ============ USE EFFECT BLOCKS AFTER DERIVED VARIABLES ============
   useEffect(() => {
     if (!authLoading) {
       fetchInvitation();
     }
-  }, [id, authLoading, user]);
+  }, [authLoading, fetchInvitation]);
 
   useEffect(() => {
     if (showInviteModal) {
       fetchGroups();
     }
-  }, [showInviteModal]);
+  }, [showInviteModal, fetchGroups]);
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -116,9 +190,8 @@ const InvitationDetail = () => {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [userSearch, showInviteModal]);
+  }, [userSearch, showInviteModal, searchUsers]);
 
-  // Auto-mark as read when opening
   useEffect(() => {
     if (user && invitation && !isOwner && !invitation.isRead) {
       api.put(`/invitations/${id}/read`)
@@ -128,27 +201,21 @@ const InvitationDetail = () => {
         })
         .catch(err => console.error('Failed to mark as read:', err));
     }
-  }, [invitation?.isRead, isOwner, user, id]);
+  }, [invitation, isOwner, user, id, fetchNotificationCounts]);
 
-  // WebSocket connection for real-time RSVP updates (only for event owners)
+  // WebSocket connection for real-time RSVP updates
   useEffect(() => {
     if (!isOwner) {
       return;
     }
 
     socket.connect();
-    console.log('🔌 WebSocket connecting for real-time RSVP updates...');
 
     socket.on('rsvp-updated', (payload) => {
-      console.log('📡 Real-time RSVP update received:', payload);
       if (payload.eventId === id) {
         refreshInvitationData();
         toast.success('A guest just RSVP\'d! Guest list updated.');
       }
-    });
-
-    socket.on('connect', () => {
-      console.log('✅ WebSocket connected:', socket.id);
     });
 
     socket.on('connect_error', (err) => {
@@ -160,48 +227,10 @@ const InvitationDetail = () => {
       socket.off('connect');
       socket.off('connect_error');
       socket.disconnect();
-      console.log('🔌 WebSocket disconnected');
     };
-  }, [id, isOwner]);
+  }, [id, isOwner, refreshInvitationData]);
 
-  // ============ ALL FUNCTIONS AFTER USE EFFECT ============
-  
-  const fetchInvitation = async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-    }
-    
-    try {
-      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
-      const response = await api.get(endpoint);
-      setInvitation(response.data);
-      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
-      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-      if (!silent) setLoading(false);
-    } catch (err) {
-      console.error('fetchInvitation error:', err);
-      if (!silent && !err.response) {
-        setError('Failed to load event. Please refresh the page.');
-      }
-      if (!silent) setLoading(false);
-    }
-  };
-
-  const refreshInvitationData = async () => {
-    console.log('🔄 Background refresh triggered...');
-    if (!user) return;
-    
-    try {
-      const endpoint = `/invitations/${id}`;
-      const response = await api.get(endpoint);
-      setInvitation(response.data);
-      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
-      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-      console.log('✅ Guest list updated silently');
-    } catch (err) {
-      console.error('❌ Background refresh failed:', err.message);
-    }
-  };
+  // ============ ALL OTHER FUNCTIONS ============
 
   const handleRSVP = async (status) => {
     const previousRsvp = myRsvp;
@@ -243,50 +272,9 @@ const InvitationDetail = () => {
       if (type === 'groupId') payload.groupId = value;
       await api.put(`/invitations/${id}/revoke`, payload);
       fetchInvitation(true);
-    } catch (err) {
+    } catch (error) {
+      console.error("Revoke error:", error);
       alert('Failed to remove guest.');
-    }
-  };
-
-  const fetchGroups = async () => {
-    setGroupsLoading(true);
-    try {
-      const response = await api.get('/groups');
-      const alreadyShared = invitation?.sharedGroups?.map(g => g._id || g) || [];
-      const processed = (response.data || []).map(g => ({
-        ...g,
-        isAlreadyShared: alreadyShared.includes(g._id)
-      }));
-      setGroups(processed);
-    } catch (err) {
-      console.error('Failed to fetch groups:', err);
-    } finally {
-      setGroupsLoading(false);
-    }
-  };
-
-  const searchUsers = async (query) => {
-    setSearchingUsers(true);
-    try {
-      const response = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
-      const guestListIds = guestList.map(g => getStringId(g.recipient?._id));
-      const invitedUserIds = invitation?.invitedUsers?.map(u => getStringId(u._id)) || [];
-      const hostUserId = getStringId(invitation?.host?._id);
-
-      const processed = response.data.map(u => {
-        const userId = getStringId(u._id);
-        return {
-          ...u,
-          isAlreadyInvited: guestListIds.includes(userId) || invitedUserIds.includes(userId),
-          isHost: userId === hostUserId
-        };
-      });
-
-      setUserResults(processed.filter(u => !u.isHost));
-    } catch (err) {
-      console.error('Failed to search users:', err);
-    } finally {
-      setSearchingUsers(false);
     }
   };
 
@@ -296,8 +284,8 @@ const InvitationDetail = () => {
     );
   };
 
-  const addUser = (user) => {
-    setSelectedUsers(prev => [...prev, { ...user, salutation: '' }]);
+  const addUser = (userData) => {
+    setSelectedUsers(prev => [...prev, { ...userData, salutation: '' }]);
     setUserSearch('');
     setUserResults([]);
   };
@@ -379,7 +367,6 @@ const InvitationDetail = () => {
         setShowInviteModal(false);
         setSelectedGroups([]);
         setSelectedUsers([]);
-        setUserSalutations({});
         setUserSearch('');
         setInviteSuccess('');
       }, 1500);
@@ -404,14 +391,14 @@ const InvitationDetail = () => {
     return (match && match[2].length === 11) ? match[2] : null;
   };
 
-const formatDateTime = (dateString) => {
-  if (!dateString) return 'Date TBA';
-  const date = new Date(dateString);
-  return date.toLocaleString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', 
-    day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
-  });
-};
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'Date TBA';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', 
+      day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+    });
+  };
 
   const handleScroll = () => {
     if (sliderRef.current) {
@@ -434,7 +421,8 @@ const formatDateTime = (dateString) => {
     try {
       await api.delete(`/invitations/${id}`);
       navigate('/');
-    } catch (err) {
+    } catch (error) {
+      console.error("Delete error:", error);
       alert('Failed to delete event');
       setIsDeleting(false);
     }
@@ -465,7 +453,8 @@ const formatDateTime = (dateString) => {
       const response = await api.put(`/invitations/${id}`, editForm);
       setInvitation(response.data);
       setShowEditModal(false);
-    } catch (err) {
+    } catch (error) {
+      console.error("Update error:", error);
       alert('Failed to update event');
     } finally {
       setUpdating(false);
@@ -704,7 +693,6 @@ const formatDateTime = (dateString) => {
             </div>
           )}
 
-          {/* Display existing Co-Hosts */}
           {invitation.delegates && invitation.delegates.length > 0 && (
             <div className="mb-6 border-t pt-6">
               <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -715,7 +703,7 @@ const formatDateTime = (dateString) => {
               </h3>
               <div className="flex flex-wrap gap-2">
                 {invitation.delegates.map((delegate) => (
-                  <div key={delegate._id || delegate} className="px-3 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg flex items-center gap-2">
+                  <div key={delegate._id || delegate} className="px-3 py-2 bg-linear-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg flex items-center gap-2">
                     <div className="bg-purple-200 p-1.5 rounded-full">
                       <span className="text-purple-700 font-semibold text-xs">
                         {(delegate.name || 'U').charAt(0).toUpperCase()}
@@ -789,7 +777,7 @@ const formatDateTime = (dateString) => {
                         <select
                           value={u.salutation || ''}
                           onChange={(e) => updateUserSalutation(u._id, e.target.value)}
-                          className="px-2 py-1 text-xs border border-gray-300 rounded-md bg-white flex-shrink-0"
+                          className="px-2 py-1 text-xs border border-gray-300 rounded-md bg-white shrink-0"
                         >
                           <option value="">None</option>
                           <option value="Mr.">Mr.</option>
@@ -798,7 +786,7 @@ const formatDateTime = (dateString) => {
                           <option value="Mr. & Mrs.">Mr. & Mrs.</option>
                           <option value="With Family">With Family</option>
                         </select>
-                        <button onClick={() => removeUser(u._id)} className="text-red-500 hover:text-red-700 flex-shrink-0">×</button>
+                        <button onClick={() => removeUser(u._id)} className="text-red-500 hover:text-red-700 shrink-0">×</button>
                       </div>
                     ))}
                   </div>
