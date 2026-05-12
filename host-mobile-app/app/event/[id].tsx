@@ -1,26 +1,23 @@
-import Toast from 'react-native-toast-message';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   View, Text, Image, TouchableOpacity, ScrollView, ActivityIndicator, 
-  StyleSheet, Alert, Linking, TextInput, FlatList, Dimensions, Modal, Share
+  StyleSheet, Alert, Linking, TextInput, FlatList, Modal, Share
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 import { pickAndCompressImages } from '@/utils/imageHandler';
-import * as ImageManipulator from 'expo-image-manipulator';
-
 import * as Haptics from 'expo-haptics';
 
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
 
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 import ImageCarousel from '../../components/ImageCarousel';
+import { generateGoogleCalendarLink } from '../../utils/calendar';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 const BASE_URL = API_URL.replace('/api', '');
@@ -72,76 +69,10 @@ export default function EventDetailsHub() {
   const [savingCoHosts, setSavingCoHosts] = useState(false);
   const coHostSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { width: screenWidth } = Dimensions.get('window');
-
   // 🧪 HARDWARE HEARTBEAT
   console.log('🚀 EVENT HUB MOUNTED. ID:', id);
 
-  useFocusEffect(
-    useCallback(() => {
-      checkAuthAndFetch();
-    }, [id])
-  );
-
-  // --- REAL-TIME RSVP WEBSOCKET LISTENER ---
-  useEffect(() => {
-    if (!id) return;
-    console.log('🔌 ATTEMPTING CONNECTION TO:', BASE_URL);
-    const socket = io(BASE_URL, {
-      transports: ['websocket'],
-      forceNew: true,
-    });
-
-    socket.on('connect', () => {
-      console.log('✅ SOCKET CONNECTED SUCCESS. ID:', socket.id);
-    });
-
-    socket.on('connect_error', (err) => {
-      console.log('❌ SOCKET CONNECTION ERROR:', err.message);
-    });
-
-    socket.on('rsvp-updated', (payload: any) => {
-      console.log('🔥 REAL-TIME RSVP RECEIVED:', payload);
-      if (payload.eventId === id) {
-        console.log('🔄 Match found. Refreshing guest list...');
-        silentRefresh();
-      }
-    });
-
-    return () => {
-      console.log('🔌 Cleaning up socket...');
-      socket.disconnect();
-    };
-  }, [id]);
-
-    // NEW TIME FORMATTER
-  const formatDateTime = (dateString: string) => {
-    if (!dateString) return 'Date TBA';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  const silentRefresh = async () => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const headers = { Authorization: `Bearer ${token}` };
-      const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
-      setGuests(guestRes.data.guests || []);
-      await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
-    } catch (e) {
-      console.log('Background refresh failed');
-    }
-  };
-
-  const checkAuthAndFetch = async () => {
+  const checkAuthAndFetch = useCallback(async () => {
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -177,7 +108,6 @@ export default function EventDetailsHub() {
           const eventData = JSON.parse(cachedEventStr);
           setInvitation(eventData);
           
-          // --- FIX 1: DELEGATE CHECK FOR OFFLINE VAULT ---
           const ownerId = eventData.host?._id || eventData.user;
           const isPrimaryHost = currentId === ownerId;
           const isDelegate = eventData.delegates && eventData.delegates.some((delegate: any) => {
@@ -186,7 +116,6 @@ export default function EventDetailsHub() {
           });
           const userIsHost = isPrimaryHost || isDelegate;
           setIsHost(userIsHost);
-          // ----------------------------------------------
 
           if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
           if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
@@ -208,7 +137,6 @@ export default function EventDetailsHub() {
       setInvitation(eventData);
       await AsyncStorage.setItem(`cache_event_${id}`, JSON.stringify(eventData));
 
-      // --- FIX 2: DELEGATE CHECK FOR ONLINE FETCH ---
       const ownerId = eventData.host?._id || eventData.user;
       const isPrimaryHost = currentId === ownerId;
       const isDelegate = eventData.delegates && eventData.delegates.some((delegate: any) => {
@@ -217,10 +145,8 @@ export default function EventDetailsHub() {
       });
       const userIsHost = isPrimaryHost || isDelegate;
       setIsHost(userIsHost); 
-      // ---------------------------------------------
 
       // --- MARK AS READ LOGIC ---
-      // If the user is NOT the host and the event is unread, tell the backend we opened it
       if (!userIsHost && eventData.isRead === false) {
         try {
           await axios.put(`${API_URL}/invitations/${id}/read`, {}, { headers });
@@ -229,14 +155,12 @@ export default function EventDetailsHub() {
           console.log('⚠️ Failed to mark event as read');
         }
       }
-      // --------------------------
 
       if (eventData.videoUrl) setVideoUrl(eventData.videoUrl);
       if (eventData.googleMapsLink) setGoogleMapsLink(eventData.googleMapsLink);
       if (!userIsHost && eventData.myRsvp) setMyRsvp(eventData.myRsvp);
       if (eventData.isSaved !== undefined) setIsSaved(eventData.isSaved);
 
-      // We now use the combined `userIsHost` boolean to fetch guests
       if (userIsHost) {
         try {
           const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
@@ -258,6 +182,69 @@ export default function EventDetailsHub() {
     } finally {
       setLoading(false);
     }
+  }, [id, router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      checkAuthAndFetch();
+    }, [checkAuthAndFetch])
+  );
+
+  const silentRefresh = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const headers = { Authorization: `Bearer ${token}` };
+      const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
+      setGuests(guestRes.data.guests || []);
+      await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
+    } catch (e) {
+      console.log('Background refresh failed');
+    }
+  }, [id]);
+
+  // --- REAL-TIME RSVP WEBSOCKET LISTENER ---
+  useEffect(() => {
+    if (!id) return;
+    console.log('🔌 ATTEMPTING CONNECTION TO:', BASE_URL);
+    const socket = io(BASE_URL, {
+      transports: ['websocket'],
+      forceNew: true,
+    });
+
+    socket.on('connect', () => {
+      console.log('✅ SOCKET CONNECTED SUCCESS. ID:', socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.log('❌ SOCKET CONNECTION ERROR:', err.message);
+    });
+
+    socket.on('rsvp-updated', (payload: any) => {
+      console.log('🔥 REAL-TIME RSVP RECEIVED:', payload);
+      if (payload.eventId === id) {
+        console.log('🔄 Match found. Refreshing guest list...');
+        silentRefresh();
+      }
+    });
+
+    return () => {
+      console.log('🔌 Cleaning up socket...');
+      socket.disconnect();
+    };
+  }, [id, silentRefresh]);
+
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return 'Date TBA';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
   };
 
   const loadMyGroups = async () => {
@@ -275,7 +262,6 @@ export default function EventDetailsHub() {
     }
   };
 
-  // --- CO-HOST LOGIC ---
   const openCoHostModal = () => {
     setSelectedCoHosts(invitation?.delegates || []);
     setShowCoHostModal(true);
@@ -300,7 +286,7 @@ export default function EventDetailsHub() {
       }
     }, 300);
     return () => { if (coHostSearchTimeoutRef.current) clearTimeout(coHostSearchTimeoutRef.current); };
-  }, [coHostSearch]);
+  }, [coHostSearch, currentUserId]);
 
   const toggleCoHost = (user: any) => {
     const isSelected = selectedCoHosts.some(c => (c._id || c) === user._id);
@@ -375,7 +361,6 @@ export default function EventDetailsHub() {
     }
   };
 
-  // --- WHATSAPP SHARE ---
   const handleWhatsAppShare = async () => {
     const eventLink = `https://invitoinnbox.vercel.app/invitation/${id}`;
     const message = `You are invited to "${invitation?.title}"!\n\n📅 Date: ${new Date(invitation?.eventDate).toLocaleDateString()}\n📍 Location: ${invitation?.location || 'TBD'}\n\nClick here to view details and RSVP: ${eventLink}`;
@@ -394,10 +379,8 @@ export default function EventDetailsHub() {
     }
   };
 
-  // --- EXPORT GUEST LIST TO CSV ---
   const exportGuestList = async () => {
     try {
-      // Get the guest list to export (filteredGuests if search is active, otherwise all guests)
       const guestListToExport = searchQuery.trim() ? filteredGuests : guests;
       
       if (guestListToExport.length === 0) {
@@ -405,7 +388,6 @@ export default function EventDetailsHub() {
         return;
       }
 
-      // Helper to escape CSV values (wrap in quotes if contains comma, quote, or newline)
       const escapeCSV = (str: string) => {
         if (!str) return '';
         const stringValue = String(str);
@@ -415,10 +397,8 @@ export default function EventDetailsHub() {
         return stringValue;
       };
 
-      // Create CSV headers
       const headers = ['Name', 'Contact', 'RSVP Status'];
       
-      // Map guests to CSV rows
       const rows = guestListToExport.map((guest: any) => {
         const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
         const guestEmail = guest.recipient?.email || '';
@@ -437,15 +417,12 @@ export default function EventDetailsHub() {
         ].join(',');
       });
 
-      // Combine headers and rows
       const csvContent = [headers.join(','), ...rows].join('\n');
 
-   // The "as any" completely silences TypeScript's false alarm
       const dir = (FileSystem as any).documentDirectory;
       const fileUri = `${dir}guest-list.csv`;
       
       await FileSystem.writeAsStringAsync(fileUri, csvContent);
-      // Check if sharing is available and share
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(fileUri, {
@@ -506,14 +483,13 @@ export default function EventDetailsHub() {
   };
 
   const pickImage = async () => {
-    // We pass 5 because this screen allows up to 5 attachments
     const newImages = await pickAndCompressImages(5); 
     if (newImages.length > 0) {
-      // In this file, your state IS actually called 'attachments', so this works perfectly
       const combined = [...attachments, ...newImages].slice(0, 5);
       setAttachments(combined);
     }
   };
+  
   const removeAttachment = (index: number) => {
     setAttachments(attachments.filter((_, i) => i !== index));
   };
@@ -692,9 +668,9 @@ export default function EventDetailsHub() {
           )}
 
           <View style={styles.infoRow}>
-  <Text style={styles.icon}>📅</Text>
-  <Text style={styles.infoText}>{formatDateTime(invitation.eventDate)}</Text>
-</View>
+            <Text style={styles.icon}>📅</Text>
+            <Text style={styles.infoText}>{formatDateTime(invitation.eventDate)}</Text>
+          </View>
           
           <TouchableOpacity style={styles.infoRow} onPress={invitation.googleMapsLink ? () => Linking.openURL(invitation.googleMapsLink) : undefined} disabled={!invitation.googleMapsLink}>
             <Text style={styles.icon}>📍</Text>
@@ -723,7 +699,6 @@ export default function EventDetailsHub() {
                     <Text style={styles.sectionTitle}>Attendee Roster</Text>
                     <Text style={styles.guestSummaryText}>{attending} Attending, {declined} Declined{pending > 0 ? `, ${pending} Pending` : ''}</Text>
                     
-                    {/* NEW: SEARCH INPUT */}
                     <TextInput
                       style={[styles.input, { marginBottom: SPACING.md, backgroundColor: '#F3F4F6' }]}
                       placeholder="🔍 Search by name or email..."
@@ -733,7 +708,6 @@ export default function EventDetailsHub() {
                       autoCorrect={false}
                     />
 
-                    {/* EXPORT CSV BUTTON */}
                     <TouchableOpacity
                       style={[styles.exportCSVButton, { marginBottom: SPACING.md }]}
                       onPress={exportGuestList}
@@ -741,7 +715,6 @@ export default function EventDetailsHub() {
                       <Text style={styles.exportCSVButtonText}>📊 Export CSV</Text>
                     </TouchableOpacity>
 
-                    {/* UPDATED: Map over filteredGuests */}
                     {filteredGuests.map((guest: any, index: number) => {
                       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
                       const guestEmail = guest.recipient?.email || guest.email || '';
@@ -770,7 +743,6 @@ export default function EventDetailsHub() {
                   </View>
                 )}
 
-                {/* --- INVITE & SHARE BUTTONS --- */}
                 <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg }}>
                   <TouchableOpacity 
                     style={[styles.button, { backgroundColor: COLORS.primary, flex: 1 }]} 
@@ -790,7 +762,6 @@ export default function EventDetailsHub() {
                   </TouchableOpacity>
                 </View>
 
-                {/* NEW: NATIVE SHARE BUTTON */}
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: '#10B981', marginTop: SPACING.sm }]} 
                   onPress={handleShareEvent}
@@ -798,15 +769,20 @@ export default function EventDetailsHub() {
                   <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>📤 Share Forwardable Link</Text>
                 </TouchableOpacity>
                 
-                {/* WHATSAPP SHARE BUTTON */}
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: '#25D366', marginTop: SPACING.sm }]} 
                   onPress={handleWhatsAppShare}
                 >
                   <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>💬 Share via WhatsApp</Text>
                 </TouchableOpacity>
+                {/* INJECTED HOST CALENDAR BUTTON */}
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: '#EEF2FF', marginTop: SPACING.sm, borderWidth: 1, borderColor: '#C7D2FE' }]} 
+                  onPress={() => Linking.openURL(generateGoogleCalendarLink(invitation))}
+                >
+                  <Text style={{ color: '#312E81', fontWeight: 'bold', fontSize: 14 }}>📅 Add to Google Calendar</Text>
+                </TouchableOpacity>
                 {/* --------------------------- */}
-                
                 <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primaryLight, marginTop: SPACING.sm }]} onPress={() => setIsEditing(!isEditing)}>
                   <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>{isEditing ? 'Cancel Edit' : 'Edit Event Media'}</Text>
                 </TouchableOpacity>
@@ -821,7 +797,6 @@ export default function EventDetailsHub() {
                         <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>+ Select Images from Gallery</Text>
                       </TouchableOpacity>
 
-                      {/* Image Preview List */}
                       {attachments.length > 0 && (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
                           {attachments.map((file, index) => (
@@ -864,6 +839,23 @@ export default function EventDetailsHub() {
                     <Text style={{ fontWeight: 'bold', color: myRsvp === 'declined' ? 'white' : COLORS.text }}>Can't Go</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* MOBILE CALENDAR BUTTON */}
+                {myRsvp === 'accepted' && (
+                  <View style={{ marginTop: 16, padding: 12, backgroundColor: '#EEF2FF', borderRadius: 8, borderWidth: 1, borderColor: '#E0E7FF' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#312E81', marginBottom: 8 }}>
+                      Add to your calendar:
+                    </Text>
+                    <TouchableOpacity 
+                      style={{ backgroundColor: '#FFFFFF', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center' }}
+                      onPress={() => Linking.openURL(generateGoogleCalendarLink(invitation))}
+                    >
+                      <Text style={{ color: '#374151', fontWeight: '600', fontSize: 14 }}>
+                        📅 Open Google Calendar
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )}
           </View>
@@ -878,7 +870,6 @@ export default function EventDetailsHub() {
 
         {isHost && (
           <View style={styles.bottomControlPanel}>
-            {/* ONLY the primary creator can manage co-hosts */}
             {currentUserId === (invitation.host?._id || invitation.user) && (
               <TouchableOpacity 
                 style={[styles.editEventButton, { backgroundColor: '#8B5CF6', marginBottom: SPACING.md }]} 

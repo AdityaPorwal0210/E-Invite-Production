@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
+import { generateGoogleCalendarLink, downloadICS } from '../utils/calendar.js';
 
 // Connect to the backend socket server
 const SOCKET_URL = 'https://invitoinbox.onrender.com';
@@ -515,7 +516,6 @@ const InvitationDetail = () => {
             <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{invitation.title}</h1>
             <p className="text-lg text-gray-500 mb-2">Hosted by <span className="font-semibold text-gray-900">{invitation.host?.name || 'Unknown'}</span></p>
             
-            {/* The Hook: Showing the date pulls them in before asking for a login */}
             <p className="font-medium text-indigo-600 mb-8 text-xl">
               {invitation.eventDate ? formatDateTime(invitation.eventDate) : 'Date & Time TBA'}
             </p>
@@ -523,7 +523,6 @@ const InvitationDetail = () => {
             <div className="border-t pt-8">
               <p className="mb-6 text-gray-700 font-medium">Log in or create an account to RSVP, view the venue map, and see the guest list.</p>
               
-              {/* SMART ROUTING via state */}
               <button 
                 onClick={() => navigate('/register', { state: { returnTo: location.pathname } })} 
                 className="w-full py-3 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 mb-3 font-bold shadow-sm transition-colors"
@@ -642,7 +641,30 @@ const InvitationDetail = () => {
                 <button onClick={() => handleRSVP('tentative')} disabled={rsvpLoading} className={`px-4 py-2 rounded-md font-medium ${myRsvp === 'tentative' || !myRsvp ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>? Maybe</button>
                 <button onClick={() => handleRSVP('declined')} disabled={rsvpLoading} className={`px-4 py-2 rounded-md font-medium ${myRsvp === 'declined' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>✕ Can't Go</button>
               </div>
+              
               {myRsvp && <p className="mt-2 text-sm text-gray-500">Your response: <span className="font-medium">{formatRsvpStatus(myRsvp)}</span></p>}
+
+              {/* CALENDAR INJECTION: Only show if they are actually going */}
+              {myRsvp === 'accepted' && (
+                <div className="mt-4 flex flex-wrap gap-3 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                  <p className="w-full text-sm font-semibold text-indigo-900 mb-1">Add to your calendar:</p>
+                  <a 
+                    href={generateGoogleCalendarLink(invitation)} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 shadow-sm"
+                  >
+                    📅 Google Calendar
+                  </a>
+                  <button 
+                    onClick={() => downloadICS(invitation)}
+                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 shadow-sm"
+                  >
+                    📥 Apple / Outlook (.ics)
+                  </button>
+                </div>
+              )}
+
               <button onClick={handleToggleSave} disabled={saveLoading} className={`mt-4 px-4 py-2 rounded-md font-medium ${isSaved ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}>
                 {isSaved ? '★ Saved' : '☆ Save the Date'}
               </button>
