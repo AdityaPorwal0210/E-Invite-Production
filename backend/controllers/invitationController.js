@@ -342,7 +342,6 @@ const createInvitation = async (req, res) => {
 
 const getInvitations = async (req, res) => {
   try {
-    // Find events where the user is the main Host OR is in the Delegates array
     const invitations = await Invitation.find({ 
       $or: [
         { user: req.user.id }, 
@@ -353,7 +352,7 @@ const getInvitations = async (req, res) => {
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
       .populate('invitedUsers', 'name email')
-      .populate('delegates', 'name email profileImage'); // <--- FULL FIX HERE
+      .populate('delegates', 'name email profileImage'); 
 
     res.status(200).json({ count: invitations.length, invitations });
   } catch (error) {
@@ -370,13 +369,12 @@ const getInvitationById = async (req, res) => {
     const invitation = await Invitation.findById(id)
       .populate('host', 'name email')
       .populate('sharedGroups', 'name')
-      .populate('delegates', 'name email profileImage'); // <--- YOU GOT THIS ONE
+      .populate('delegates', 'name email profileImage'); 
 
     if (!invitation) {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-// CHECK BOTH PRIMARY HOST AND DELEGATES
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     const isHost = isPrimaryHost || isDelegate;
@@ -457,7 +455,6 @@ const updateRSVP = async (req, res) => {
       rsvpStatus: status
     });
 
-    // Send push notification to host (CRITICAL: wrapped in try/catch to fail silently)
     try {
       const host = await User.findById(invitation.user).select('name expoPushToken');
       const guestName = result.recipient?.name || 'A guest';
@@ -473,7 +470,6 @@ const updateRSVP = async (req, res) => {
         console.log(`📱 Push notification sent to host ${host.name}`);
       }
     } catch (pushError) {
-      // CRITICAL: Fail silently - do not crash the RSVP process
       console.log('⚠️ Push notification failed silently:', pushError.message);
     }
 
@@ -488,20 +484,30 @@ const updateRSVP = async (req, res) => {
 // @route   GET /api/invitations/received
 const getReceivedInvitations = async (req, res) => {
   try {
+    // FIX: Deeply populate the host's details so the frontend search filter actually has a name to search.
     const receivedInvites = await ReceivedInvitation.find({ recipient: req.user.id })
-      .populate('invitation', 'title eventDate location coverImage host')
+      .populate({
+        path: 'invitation',
+        select: 'title eventDate location coverImage host delegates',
+        populate: {
+          path: 'host',
+          select: 'name email'
+        }
+      })
       .sort({ createdAt: -1 });
 
-    // Extract the nested 'invitation' data and add rsvpStatus so the mobile app can parse it easily
-    const formattedData = receivedInvites.map(item => ({
-      _id: item.invitation._id,
-      title: item.invitation.title,
-      eventDate: item.invitation.eventDate,
-      location: item.invitation.location,
-      coverImage: item.invitation.coverImage,
-      host: item.invitation.host,
-      rsvpStatus: item.rsvpStatus
-    }));
+    // FIX: Add a safeguard filter to strip out orphaned ReceivedInvitations where the base Invitation was deleted
+    const formattedData = receivedInvites
+      .filter(item => item.invitation != null)
+      .map(item => ({
+        _id: item.invitation._id,
+        title: item.invitation.title,
+        eventDate: item.invitation.eventDate,
+        location: item.invitation.location,
+        coverImage: item.invitation.coverImage,
+        host: item.invitation.host, 
+        rsvpStatus: item.rsvpStatus
+      }));
 
     res.status(200).json(formattedData);
   } catch (error) {
@@ -521,14 +527,12 @@ const updateInvitation = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // --- CO-HOST FIX ---
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     if (!isPrimaryHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to update this invitation" });
     }
 
-    // --- Update Text Fields ---
     if (title) invitation.title = title;
     if (description) invitation.description = description;
     if (eventDate) invitation.eventDate = eventDate;
@@ -536,7 +540,6 @@ const updateInvitation = async (req, res) => {
     if (videoUrl !== undefined) invitation.videoUrl = videoUrl || null;
     if (googleMapsLink !== undefined) invitation.googleMapsLink = googleMapsLink || null;
 
-    // --- Process Array of Attachments ---
     if (req.files && req.files.length > 0) {
       console.log(`🖼️ Update Mode: Processing ${req.files.length} uploaded files...`);
       
@@ -565,7 +568,6 @@ const updateInvitation = async (req, res) => {
 
     await invitation.save();
 
-    // --- Send Notifications to Guests ---
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     try {
       const guests = await ReceivedInvitation.find({ invitation: id }).populate('recipient', 'name email');
@@ -697,7 +699,6 @@ const revokeInvite = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // --- CO-HOST FIX ---
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     if (!isPrimaryHost && !isDelegate) {
@@ -778,7 +779,6 @@ const shareInvitationLater = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // CORRECT: Allows the Host OR any assigned Delegate to send invites
     const isHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
 
@@ -803,7 +803,6 @@ const shareInvitationLater = async (req, res) => {
     const rawEmails = [];
     const isObjectId = /^[0-9a-fA-F]{24}$/;
     
-    // NEW LOGIC: Process Phones First and force them into validUserIds
     if (newPhones) {
       let phonesArray = [];
       if (Array.isArray(newPhones)) {
@@ -827,17 +826,15 @@ const shareInvitationLater = async (req, res) => {
           if (!user) {
             try {
               console.log("👤 Creating placeholder for:", cleanPhone);
-              // CRITICAL FIX: We are adding a dummy password just in case your schema requires it
               user = await User.create({
                 name: p.name || 'Guest',
                 phoneNumber: cleanPhone,
                 email: `guest_${cleanPhone}_${Date.now()}@placeholder.com`,
-                password: 'PlaceholderPassword123!', // Bypass password requirement
+                password: 'PlaceholderPassword123!', 
                 isRegistered: false
               });
               console.log("✅ Placeholder created successfully. ID:", user._id);
             } catch (err) {
-              // IF IT FAILS NOW, THIS WILL TELL US EXACTLY WHY
               console.error('❌ Mongoose Validation Failed for Phone Placeholder:', err.message);
               continue; 
             }
@@ -911,7 +908,6 @@ const shareInvitationLater = async (req, res) => {
         .filter(u => u.email && !u.email.includes('@placeholder.com'))
         .map(u => u.email);
         
-      // Collect users with push tokens for notification
       usersWithPushTokens = registeredUsers.filter(u => u.expoPushToken);
     }
 
@@ -1036,7 +1032,6 @@ const shareInvitationLater = async (req, res) => {
       }
     }
 
-    // Send push notifications to users with expoPushTokens
     if (usersWithPushTokens.length > 0) {
       console.log(`📱 Sending push notifications to ${usersWithPushTokens.length} users`);
       
@@ -1151,7 +1146,6 @@ const getEventGuestList = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // --- CO-HOST FIX ---
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     if (!isPrimaryHost && !isDelegate) {
@@ -1182,7 +1176,6 @@ const removeGuest = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // --- CO-HOST FIX ---
     const isPrimaryHost = invitation.user.toString() === req.user.id;
     const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
     if (!isPrimaryHost && !isDelegate) {
@@ -1223,7 +1216,7 @@ const markAsRead = async (req, res) => {
 const updateDelegates = async (req, res) => {
   try {
     const { id } = req.params;
-    const { delegates } = req.body; // Array of User IDs
+    const { delegates } = req.body; 
 
     const invitation = await Invitation.findById(id);
 
@@ -1231,7 +1224,6 @@ const updateDelegates = async (req, res) => {
       return res.status(404).json({ message: "Invitation not found" });
     }
 
-    // STRICT CHECK: Only the original creator can manage delegates
     if (invitation.user.toString() !== req.user.id) {
       return res.status(403).json({ message: "Only the primary host can manage co-hosts." });
     }
@@ -1239,7 +1231,6 @@ const updateDelegates = async (req, res) => {
     invitation.delegates = delegates;
     await invitation.save();
 
-    // === THE FIX: POPULATE BEFORE SENDING THE RESPONSE ===
     await invitation.populate('delegates', 'name email profileImage');
 
     res.status(200).json({ message: "Co-hosts updated successfully", delegates: invitation.delegates });
@@ -1248,8 +1239,6 @@ const updateDelegates = async (req, res) => {
     res.status(500).json({ message: "Server error while updating co-hosts" });
   }
 };
-// @desc    Update group invite permissions
-// @route   PUT /api/groups/:id/permissions
 
 module.exports = { 
   createInvitation, 

@@ -9,7 +9,8 @@ import {
   AppState,
   ActivityIndicator,
   Linking,
-  Alert, 
+  Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -36,6 +37,7 @@ interface Event {
   isRead?: boolean;
   host?: {
     _id?: string;
+    name?: string;
   };
 }
 
@@ -45,7 +47,7 @@ const API_URL = `${baseUrl}/invitations`;
 export default function Dashboard() {
   const router = useRouter();
   
-  // --- NOTIFICATION STATE (LOCALIZED POLLING) ---
+  // --- NOTIFICATION STATE ---
   const [notificationCounts, setNotificationCounts] = useState({ pendingInvites: 0 });
   const prevInvitesRef = useRef(0);
 
@@ -54,6 +56,10 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
+  // --- SEARCH STATE ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+
   const [pushPermissionDenied, setPushPermissionDenied] = useState(false);
   const [userData, setUserData] = useState<any>(null);
   const [showSync, setShowSync] = useState<boolean>(false);
@@ -76,9 +82,8 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchCounts]);
 
-  // NEW TIME FORMATTER
-const formatDateTime = (dateString?: string) => {
-      if (!dateString) return 'Date not set';
+  const formatDateTime = (dateString?: string) => {
+    if (!dateString) return 'Date not set';
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
       month: 'short', 
@@ -88,6 +93,32 @@ const formatDateTime = (dateString?: string) => {
       hour12: true
     });
   };
+
+  // --- LOCAL DEBOUNCED SEARCH FILTER ---
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredEvents(events);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(() => {
+      const lowercasedQuery = searchQuery.toLowerCase();
+      
+      const filtered = events.filter((event) => {
+        const titleMatch = event.title?.toLowerCase().includes(lowercasedQuery);
+        const locationMatch = event.location?.toLowerCase().includes(lowercasedQuery);
+        const hostMatch = event.host?.name?.toLowerCase().includes(lowercasedQuery);
+        const formattedDate = formatDateTime(event.eventDate).toLowerCase();
+        const dateMatch = formattedDate.includes(lowercasedQuery);
+
+        return titleMatch || locationMatch || hostMatch || dateMatch;
+      });
+      
+      setFilteredEvents(filtered);
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, events]);
 
   // --- TOAST TRIGGER ---
   useEffect(() => {
@@ -102,7 +133,6 @@ const formatDateTime = (dateString?: string) => {
         visibilityTime: 4000,
       });
     }
-    
     prevInvitesRef.current = currentCount;
   }, [notificationCounts.pendingInvites]);
 
@@ -138,7 +168,6 @@ const formatDateTime = (dateString?: string) => {
         checkPermissionsAndGetToken();
       }
     });
-
     return () => subscription.remove();
   }, []);
 
@@ -149,7 +178,6 @@ const formatDateTime = (dateString?: string) => {
         router.push(`/event/${data.invitationId}?mode=attending`);
       }
     });
-
     return () => subscription.remove();
   }, []);
 
@@ -243,7 +271,7 @@ const formatDateTime = (dateString?: string) => {
   useFocusEffect(
     useCallback(() => {
       fetchEvents();
-      fetchCounts(); // INSTANTLY update the red badge when returning to this screen
+      fetchCounts();
     }, [viewMode, fetchCounts])
   );
 
@@ -253,7 +281,6 @@ const formatDateTime = (dateString?: string) => {
   };
 
   const renderEventItem = ({ item }: { item: Event }) => {
-    // Only show "NEW" tag if we are in attending mode and the event is unread
     const isNew = viewMode === 'attending' && item.isRead === false;
 
     return (
@@ -278,8 +305,8 @@ const formatDateTime = (dateString?: string) => {
           </View>
           
           <Text style={styles.cardDate}>
-  {formatDateTime(item.eventDate)}
-</Text>
+            {formatDateTime(item.eventDate)}
+          </Text>
           <Text style={styles.cardLocation} numberOfLines={1}>
             {item.location || 'Location not set'}
           </Text>
@@ -297,6 +324,7 @@ const formatDateTime = (dateString?: string) => {
       </TouchableOpacity>
     );
   };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -331,12 +359,34 @@ const formatDateTime = (dateString?: string) => {
         </TouchableOpacity>
       )}
 
-      <View style={styles.quickActionsContainer}>
-        <TouchableOpacity style={styles.savedButton} onPress={() => router.push('/saved')}>
-          <Text style={styles.savedButtonText}>📌 Saved</Text>
+      {/* COMBINED ACTION ROW: Search + Saved + Groups */}
+      <View style={styles.actionRow}>
+        <View style={styles.compactSearchContainer}>
+          <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search events, hosts, dates..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+        </View>
+
+        <TouchableOpacity 
+          style={styles.savedIconButton} 
+          onPress={() => router.push('/saved')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="bookmark" size={20} color="#D97706" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/groups')}>
-          <Text style={styles.primaryButtonText}>👥 Groups</Text>
+
+        <TouchableOpacity 
+          style={styles.groupIconButton} 
+          onPress={() => router.push('/groups')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="people" size={22} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -362,7 +412,6 @@ const formatDateTime = (dateString?: string) => {
             Attending
           </Text>
           
-          {/* THE RED NOTIFICATION BADGE */}
           {notificationCounts.pendingInvites > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{notificationCounts.pendingInvites}</Text>
@@ -386,26 +435,28 @@ const formatDateTime = (dateString?: string) => {
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : events.length === 0 ? (
+      ) : filteredEvents.length === 0 ? (
         <View style={styles.emptyStateContainer}>
           <View style={styles.emptyStateIconContainer}>
             <Ionicons 
-              name={viewMode === 'hosting' ? "calendar-outline" : "mail-open-outline"} 
+              name={viewMode === 'hosting' ? "calendar-outline" : "search-outline"} 
               size={64} 
               color={COLORS.primary || '#3730A3'} 
               style={{ opacity: 0.8 }}
             />
           </View>
           <Text style={styles.emptyStateTitle}>
-            {viewMode === 'hosting' ? "Let's get started!" : "You're all caught up."}
+            {searchQuery ? "No matching events" : (viewMode === 'hosting' ? "Let's get started!" : "You're all caught up.")}
           </Text>
           <Text style={styles.emptyStateSubtext}>
-            {viewMode === 'hosting' 
-              ? "Create your first event to send out stunning invitations and track your RSVPs in real-time." 
-              : "When hosts invite you to their events, they will magically appear right here."}
+            {searchQuery 
+              ? `We couldn't find anything matching "${searchQuery}".`
+              : (viewMode === 'hosting' 
+                ? "Create your first event to send out stunning invitations and track your RSVPs in real-time." 
+                : "When hosts invite you to their events, they will magically appear right here.")}
           </Text>
           
-          {viewMode === 'hosting' && (
+          {viewMode === 'hosting' && !searchQuery && (
             <TouchableOpacity 
               style={styles.emptyStateButton}
               onPress={() => router.push('/create')}
@@ -418,7 +469,7 @@ const formatDateTime = (dateString?: string) => {
         </View>
       ) : (
         <FlatList
-          data={events}
+          data={filteredEvents}
           keyExtractor={(item) => item._id}
           renderItem={renderEventItem}
           contentContainerStyle={styles.listContent}
@@ -466,6 +517,51 @@ const styles = StyleSheet.create({
   profileInitials: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   profileInitialsText: { fontSize: 18, fontWeight: 'bold', color: '#4338CA' },
 
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  compactSearchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    fontSize: 16,
+    color: '#111827',
+  },
+  savedIconButton: {
+    backgroundColor: '#FEF3C7',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groupIconButton: {
+    backgroundColor: COLORS.primary || '#3730A3',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
   warningBanner: {
     backgroundColor: '#FEE2E2',
     padding: 12,
@@ -480,32 +576,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
-
-  quickActionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  savedButton: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  savedButtonText: { color: '#D97706', fontWeight: 'bold', fontSize: 14 },
-  primaryButton: {
-    backgroundColor: COLORS.primary || '#3730A3',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  primaryButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
 
   loadingText: { marginTop: 12, ...TYPOGRAPHY.body },
   errorText: { ...TYPOGRAPHY.body, color: COLORS.danger || '#DC2626', textAlign: 'center', marginBottom: 16 },
@@ -583,7 +653,6 @@ const styles = StyleSheet.create({
   },
   newBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
 
-  // --- EMPTY STATE STYLES ---
   emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',

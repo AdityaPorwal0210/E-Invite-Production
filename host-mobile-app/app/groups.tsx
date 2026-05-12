@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../constants/theme';
 import { cacheData, getCachedData, CACHE_KEYS } from '../utils/cache';
 import useNetworkStatus from '../hooks/useNetworkStatus';
@@ -58,6 +59,11 @@ interface PendingContact {
 
 export default function Groups() {
   const [groups, setGroups] = useState<Group[]>([]);
+  
+  // --- SEARCH STATE ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredGroups, setFilteredGroups] = useState<Group[]>([]);
+
   const [loading, setLoading] = useState<boolean>(true);
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [newGroup, setNewGroup] = useState({ name: '', description: '' });
@@ -74,7 +80,8 @@ export default function Groups() {
   // Mode 1: Search Existing
   const [userSearch, setUserSearch] = useState<string>('');
   const [userResults, setUserResults] = useState<Array<{_id: string; name: string; email: string}>>([]);
-const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   // Mode 2: Bulk Manual Add
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
@@ -95,6 +102,30 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     });
     return () => unsubscribe();
   }, []);
+
+  // --- LOCAL DEBOUNCED SEARCH FILTER FOR GROUPS ---
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredGroups(groups);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(() => {
+      const lowercasedQuery = searchQuery.toLowerCase();
+      
+      const filtered = groups.filter((group) => {
+        const nameMatch = group.name?.toLowerCase().includes(lowercasedQuery);
+        const descMatch = group.description?.toLowerCase().includes(lowercasedQuery);
+        const ownerMatch = group.owner?.name?.toLowerCase().includes(lowercasedQuery);
+
+        return nameMatch || descMatch || ownerMatch;
+      });
+      
+      setFilteredGroups(filtered);
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, groups]);
   
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -127,16 +158,14 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     }
   };
 
-const fetchGroups = async () => {
+  const fetchGroups = async () => {
     try {
       const token = await AsyncStorage.getItem('authToken');
       if (!token) return Alert.alert('Error', 'Please log in again');
 
-      // THE SHORT-CIRCUIT: Check hardware before making the request
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
 
-      // If offline, abort Axios completely and read the Vault
       if (!networkState.isConnected) {
         console.log('🌐 Device is offline. Bypassing network request.');
         const cachedGroups = await getCachedData(CACHE_KEYS.GROUPS);
@@ -145,16 +174,14 @@ const fetchGroups = async () => {
           setGroups(cachedGroups);
         }
         setLoading(false);
-        return; // STOP EXECUTION HERE. Do not let Axios fire.
+        return; 
       }
 
-      // If online, fire the request with a strict 5-second kill switch
       const response = await axios.get(`${API_URL}/groups`, {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 5000, 
       });
       
-      // Save fresh data to the Vault
       await cacheData(CACHE_KEYS.GROUPS, response.data);
       setGroups(response.data || []);
 
@@ -193,7 +220,6 @@ const fetchGroups = async () => {
   
   const openManageModal = (group: Group) => {
     setSelectedGroup(group);
-    // Reset all add states
     setAddMode('search');
     setUserSearch('');
     setUserResults([]);
@@ -218,12 +244,9 @@ const fetchGroups = async () => {
     }
   };
   
-const handleCopyInviteLink = async () => {
+  const handleCopyInviteLink = async () => {
     if (!selectedGroup) return;
-    
-    // Using the exact double-'n' Vercel URL
     const WEB_APP_URL = 'https://invitoinnbox.vercel.app'; 
-    
     try {
       await Share.share({
         message: `Join my group on InvitoInbox: ${WEB_APP_URL}/group/join/${selectedGroup._id}`,
@@ -339,7 +362,6 @@ const handleCopyInviteLink = async () => {
     }
   };
 
-  // --- NEW: Bulk Manual Add Logic ---
   const handleAddToQueue = () => {
     if (!newName.trim()) return Alert.alert('Wait', 'Please enter a name.');
     if (!newPhone.trim() && !newEmail.trim()) {
@@ -389,7 +411,6 @@ const handleCopyInviteLink = async () => {
       setSubmittingBulk(false);
     }
   };
-  // -----------------------------------
   
   const handleRemoveMember = async (memberId: string) => {
     if (!selectedGroup) return;
@@ -453,16 +474,31 @@ const handleCopyInviteLink = async () => {
         </TouchableOpacity>
       </View>
 
+      {/* SEARCH BAR */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search groups by name, description, or owner..."
+          placeholderTextColor="#9CA3AF"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+        />
+      </View>
+
       {/* Groups List */}
-      {groups.length === 0 ? (
+      {filteredGroups.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyIcon}>👥</Text>
-          <Text style={styles.emptyTitle}>No groups yet.</Text>
-          <Text style={styles.emptySubtitle}>Build your crew!</Text>
+          <Text style={styles.emptyTitle}>{searchQuery ? "No matching groups" : "No groups yet."}</Text>
+          <Text style={styles.emptySubtitle}>
+            {searchQuery ? `We couldn't find anything matching "${searchQuery}".` : "Build your crew!"}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={groups}
+          data={filteredGroups}
           keyExtractor={(item) => item._id}
           renderItem={renderGroupCard}
           contentContainerStyle={styles.listContent}
@@ -683,11 +719,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.screenPadding },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: SPACING.sm, ...TYPOGRAPHY.body },
-  header: { backgroundColor: COLORS.card, padding: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  header: { backgroundColor: COLORS.card, padding: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginBottom: SPACING.md },
   headerTitle: { ...TYPOGRAPHY.title, marginBottom: SPACING.md },
   createButton: { backgroundColor: COLORS.primary, borderRadius: 8, paddingVertical: SPACING.sm + 4, alignItems: 'center' },
   createButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  listContent: { paddingVertical: SPACING.md },
+  
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    ...TYPOGRAPHY.body,
+    fontSize: 16,
+    color: '#111827',
+  },
+
+  listContent: { paddingBottom: SPACING.xl },
   card: { backgroundColor: COLORS.card, borderRadius: 12, padding: SPACING.md, marginBottom: SPACING.md, ...SHADOWS.card },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
   cardTitle: { ...TYPOGRAPHY.header, flex: 1 },
@@ -737,7 +795,6 @@ const styles = StyleSheet.create({
   queueItemContact: { fontSize: 12, color: COLORS.textMuted },
   submitBulkButton: { backgroundColor: COLORS.primary, padding: 12, borderRadius: 6, alignItems: 'center', marginTop: 10 },
   submitBulkButtonText: { color: '#FFF', fontWeight: 'bold' },
-  searchInput: { backgroundColor: COLORS.background, borderRadius: 8, padding: SPACING.sm + 6, ...TYPOGRAPHY.body, borderWidth: 1, borderColor: COLORS.border },
   searchResults: { marginTop: SPACING.sm, marginBottom: SPACING.md },
   searchResultItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.background, borderRadius: 8, padding: SPACING.sm + 4, marginBottom: SPACING.xs + 4 },
   searchResultInfo: { flex: 1 },
