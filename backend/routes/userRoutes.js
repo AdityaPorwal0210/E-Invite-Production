@@ -14,7 +14,9 @@ const {
   requestPhoneSync,
   updatePushToken,
   testPushNotification,
-  verifyPhoneSync // <-- NEW IMPORT
+  verifyPhoneSync,
+  requestSecondaryPhoneSync,
+  verifySecondaryPhoneSync
 } = require("../controllers/userController");
 const { protect } = require("../middleware/authMiddleware");
 console.log("Check Imports:", { requestPhoneSync, verifyPhoneSync });
@@ -28,6 +30,9 @@ router.post("/reset-password", resetPassword);
 // <-- NEW PROTECTED ROUTE FOR PHONE SYNC -->
 router.post("/sync-phone/request", protect, requestPhoneSync);
 router.post("/sync-phone/verify", protect, verifyPhoneSync);
+
+router.post("/sync-secondary-phone/request", protect, requestSecondaryPhoneSync);
+router.post("/sync-secondary-phone/verify", protect, verifySecondaryPhoneSync);
 
 router.get("/search", protect, searchUsers);
 router.get("/notifications/counts", protect, getNotificationCounts);

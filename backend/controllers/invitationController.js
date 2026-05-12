@@ -821,7 +821,12 @@ const shareInvitationLater = async (req, res) => {
         if (p.phone) {
           const cleanPhone = p.phone.replace(/[^0-9+]/g, ''); 
           
-          let user = await User.findOne({ phoneNumber: cleanPhone });
+          let user = await User.findOne({
+            $or: [
+              { phoneNumber: cleanPhone },
+              { secondaryPhone: cleanPhone }
+            ]
+          });
           
           if (!user) {
             try {

@@ -12,11 +12,15 @@ const Profile = () => {
   const [formData, setFormData] = useState({
     name: user?.name || '',
     phoneNumber: user?.phoneNumber || '',
+    secondaryPhone: user?.secondaryPhone || '',
   });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [secondaryOtpStep, setSecondaryOtpStep] = useState(false);
+  const [secondaryOtp, setSecondaryOtp] = useState('');
+  const [secondarySyncing, setSecondarySyncing] = useState(false);
 
   const handleImageSelect = async (e) => {
     const file = e.target.files[0];
@@ -69,6 +73,44 @@ const Profile = () => {
       setError(err.response?.data?.message || 'Failed to update profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRequestSecondarySync = async () => {
+    if (!formData.secondaryPhone.trim()) {
+      setError('Please enter a secondary phone number first.');
+      return;
+    }
+    setSecondarySyncing(true);
+    setError('');
+    try {
+      await api.post('/users/sync-secondary-phone/request', { phoneNumber: formData.secondaryPhone });
+      setSecondaryOtpStep(true);
+      setSuccess('OTP sent to your secondary phone number.');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send OTP.');
+    } finally {
+      setSecondarySyncing(false);
+    }
+  };
+
+  const handleVerifySecondarySync = async () => {
+    if (!secondaryOtp.trim()) return;
+    setSecondarySyncing(true);
+    setError('');
+    try {
+      const response = await api.post('/users/sync-secondary-phone/verify', {
+        phoneNumber: formData.secondaryPhone,
+        otp: secondaryOtp,
+      });
+      setUser({ ...user, ...response.data.user });
+      setSecondaryOtpStep(false);
+      setSecondaryOtp('');
+      setSuccess('Secondary phone verified and synced!');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Invalid or expired OTP.');
+    } finally {
+      setSecondarySyncing(false);
     }
   };
 
@@ -208,6 +250,68 @@ const Profile = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="Enter phone number"
               />
+            </div>
+
+            {/* Secondary Phone */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Secondary Phone Number
+                <span className="ml-2 text-xs text-gray-400 font-normal">(optional — invites sent to this number will also reach you)</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={formData.secondaryPhone}
+                  onChange={(e) => setFormData({ ...formData, secondaryPhone: e.target.value })}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="e.g. +1234567890"
+                  disabled={user?.isSecondaryPhoneVerified}
+                />
+                {!user?.isSecondaryPhoneVerified && !secondaryOtpStep && (
+                  <button
+                    type="button"
+                    onClick={handleRequestSecondarySync}
+                    disabled={secondarySyncing}
+                    className="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {secondarySyncing ? 'Sending...' : 'Verify'}
+                  </button>
+                )}
+                {user?.isSecondaryPhoneVerified && (
+                  <span className="px-3 py-2 bg-green-100 text-green-700 text-sm rounded-md font-medium">✓ Verified</span>
+                )}
+              </div>
+
+              {secondaryOtpStep && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="text"
+                    value={secondaryOtp}
+                    onChange={(e) => setSecondaryOtp(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-indigo-300 rounded-md"
+                    placeholder="Enter 6-digit OTP"
+                    maxLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifySecondarySync}
+                    disabled={secondarySyncing || secondaryOtp.length !== 6}
+                    className="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {secondarySyncing ? 'Verifying...' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setSecondaryOtpStep(false); setSecondaryOtp(''); }}
+                    className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {user?.secondaryPhone && !user?.isSecondaryPhoneVerified && !secondaryOtpStep && (
+                <p className="text-xs text-amber-600 mt-1">Number saved but not yet verified. Enter the number and click Verify.</p>
+              )}
             </div>
 
             <button

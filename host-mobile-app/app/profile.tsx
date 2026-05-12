@@ -27,6 +27,10 @@ export default function ProfileScreen() {
   const [user, setUser] = useState<any>(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editSecondaryPhone, setEditSecondaryPhone] = useState('');
+  const [secondaryOtpStep, setSecondaryOtpStep] = useState(false);
+  const [secondaryOtp, setSecondaryOtp] = useState('');
+  const [secondarySyncing, setSecondarySyncing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -42,6 +46,7 @@ export default function ProfileScreen() {
         setUser(parsedUser);
         setEditName(parsedUser.name || '');
         setEditPhone(parsedUser.phoneNumber || '');
+        setEditSecondaryPhone(parsedUser.secondaryPhone || '');
       } else {
         router.replace('/');
       }
@@ -60,24 +65,60 @@ export default function ProfileScreen() {
     setSaving(true);
     try {
       const cleanPhone = editPhone ? editPhone.replace(/[^0-9+]/g, '') : '';
+      const cleanSecondaryPhone = editSecondaryPhone ? editSecondaryPhone.replace(/[^0-9+]/g, '') : '';
 
-      // 2. LET THE INTERCEPTOR HANDLE THE TOKEN
       const response = await api.put('/users/profile', { 
         name: editName,
-        phoneNumber: cleanPhone
+        phoneNumber: cleanPhone,
+        secondaryPhone: cleanSecondaryPhone || null,
       });
 
       const updatedUser = { ...user, ...response.data };
       setUser(updatedUser);
-      
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-      
       Alert.alert('Success', 'Profile updated successfully.');
       setIsEditing(false);
     } catch (err: any) {
       Alert.alert('Update Failed', err.response?.data?.message || 'Could not update profile.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRequestSecondarySync = async () => {
+    if (!editSecondaryPhone.trim()) {
+      return Alert.alert('Error', 'Please enter a secondary phone number first.');
+    }
+    setSecondarySyncing(true);
+    try {
+      await api.post('/users/sync-secondary-phone/request', { phoneNumber: editSecondaryPhone });
+      setSecondaryOtpStep(true);
+      Alert.alert('OTP Sent', 'Enter the 6-digit code sent to your secondary number.');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to send OTP.');
+    } finally {
+      setSecondarySyncing(false);
+    }
+  };
+
+  const handleVerifySecondarySync = async () => {
+    if (secondaryOtp.length !== 6) return;
+    setSecondarySyncing(true);
+    try {
+      const response = await api.post('/users/sync-secondary-phone/verify', {
+        phoneNumber: editSecondaryPhone,
+        otp: secondaryOtp,
+      });
+      const updatedUser = { ...user, ...response.data.user };
+      setUser(updatedUser);
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      setSecondaryOtpStep(false);
+      setSecondaryOtp('');
+      Alert.alert('Success', 'Secondary phone verified and synced!');
+    } catch (err: any) {
+      Alert.alert('Invalid OTP', err.response?.data?.message || 'OTP is incorrect or expired.');
+    } finally {
+      setSecondarySyncing(false);
     }
   };
 
@@ -163,6 +204,9 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={() => {
               setEditName(user?.name || '');
               setEditPhone(user?.phoneNumber || '');
+              setEditSecondaryPhone(user?.secondaryPhone || '');
+              setSecondaryOtpStep(false);
+              setSecondaryOtp('');
               setIsEditing(false);
             }}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -221,6 +265,71 @@ export default function ProfileScreen() {
                   {user?.phoneNumber || 'Not provided'}
                 </Text>
                 {user?.isPhoneVerified && <Text style={styles.verifiedBadge}>✓ Verified</Text>}
+              </View>
+            )}
+          </View>
+
+          {/* Secondary Phone */}
+          <View style={styles.fieldContainer}>
+            <Text style={styles.fieldLabel}>
+              Secondary Phone{' '}
+              <Text style={{ color: '#9CA3AF', fontWeight: '400' }}>(optional)</Text>
+            </Text>
+            {isEditing ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  value={editSecondaryPhone}
+                  onChangeText={setEditSecondaryPhone}
+                  placeholder="e.g. +1234567890"
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#9CA3AF"
+                  editable={!user?.isSecondaryPhoneVerified}
+                />
+                {!user?.isSecondaryPhoneVerified && !secondaryOtpStep && (
+                  <TouchableOpacity
+                    style={[styles.verifyBtn, secondarySyncing && { opacity: 0.6 }]}
+                    onPress={handleRequestSecondarySync}
+                    disabled={secondarySyncing}
+                  >
+                    <Text style={styles.verifyBtnText}>{secondarySyncing ? 'Sending OTP...' : 'Send OTP to Verify'}</Text>
+                  </TouchableOpacity>
+                )}
+                {secondaryOtpStep && (
+                  <View style={{ marginTop: 8 }}>
+                    <TextInput
+                      style={[styles.input, { letterSpacing: 6, textAlign: 'center' }]}
+                      value={secondaryOtp}
+                      onChangeText={setSecondaryOtp}
+                      placeholder="Enter 6-digit OTP"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      placeholderTextColor="#9CA3AF"
+                    />
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.verifyBtn, { flex: 1, backgroundColor: '#10B981' }, (secondarySyncing || secondaryOtp.length !== 6) && { opacity: 0.5 }]}
+                        onPress={handleVerifySecondarySync}
+                        disabled={secondarySyncing || secondaryOtp.length !== 6}
+                      >
+                        <Text style={styles.verifyBtnText}>{secondarySyncing ? 'Verifying...' : 'Confirm OTP'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.verifyBtn, { flex: 1, backgroundColor: '#9CA3AF' }]}
+                        onPress={() => { setSecondaryOtpStep(false); setSecondaryOtp(''); }}
+                      >
+                        <Text style={styles.verifyBtnText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.readOnlyField}>
+                <Text style={styles.valueText}>
+                  {user?.secondaryPhone || 'Not provided'}
+                </Text>
+                {user?.isSecondaryPhoneVerified && <Text style={styles.verifiedBadge}>✓ Verified</Text>}
               </View>
             )}
           </View>
@@ -314,6 +423,15 @@ const styles = StyleSheet.create({
     marginTop: 8 
   },
   saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+
+  verifyBtn: {
+    backgroundColor: COLORS.primary || '#4F46E5',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  verifyBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
 
   logoutBtn: { 
     marginTop: 24, 

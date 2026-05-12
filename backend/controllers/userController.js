@@ -149,8 +149,10 @@ const loginUser = async (req, res) => {
           name: user.name,
           email: user.email,
           phoneNumber: user.phoneNumber,
+          secondaryPhone: user.secondaryPhone || null,
           profileImage: user.profileImage || '',
-          isPhoneVerified: user.isPhoneVerified || false
+          isPhoneVerified: user.isPhoneVerified || false,
+          isSecondaryPhoneVerified: user.isSecondaryPhoneVerified || false
         },
         token: generateToken(user._id)
       });
@@ -275,13 +277,14 @@ const deleteUserProfile = async (req, res) => {
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, phoneNumber, profileImage } = req.body;
+    const { name, phoneNumber, secondaryPhone, profileImage } = req.body;
     const updateData = {};
     if (name) updateData.name = name;
     if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+    if (secondaryPhone !== undefined) updateData.secondaryPhone = secondaryPhone || null;
     if (profileImage !== undefined) updateData.profileImage = profileImage;
 
-const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' }).select('-password');
+    const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' }).select('-password');
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Error updating profile" });
@@ -371,9 +374,11 @@ const googleLogin = async (req, res) => {
         _id: user._id,
         name: user.name,
         email: user.email,
-        phoneNumber: user.phoneNumber, // ADD THIS
-        profileImage: user.profileImage || '', // ADD THIS
-        isPhoneVerified: user.isPhoneVerified || false, // ADD THIS
+        phoneNumber: user.phoneNumber,
+        secondaryPhone: user.secondaryPhone || null,
+        profileImage: user.profileImage || '',
+        isPhoneVerified: user.isPhoneVerified || false,
+        isSecondaryPhoneVerified: user.isSecondaryPhoneVerified || false,
         role: user.role
       }
     });
@@ -585,6 +590,121 @@ const savePushToken = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+// @desc    Request OTP for secondary phone sync
+const requestSecondaryPhoneSync = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ message: "Phone number is required" });
+    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+
+    // Must not already be claimed as a verified primary or secondary by someone else
+    const existingUser = await User.findOne({
+      _id: { $ne: userId },
+      $or: [
+        { phoneNumber: cleanPhone, isPhoneVerified: true },
+        { secondaryPhone: cleanPhone, isSecondaryPhoneVerified: true }
+      ]
+    });
+    if (existingUser) return res.status(400).json({ message: "This number is already linked to another account." });
+
+    // Must not be same as user's own primary phone
+    const currentUser = await User.findById(userId);
+    if (currentUser.phoneNumber === cleanPhone) {
+      return res.status(400).json({ message: "This is already your primary phone number." });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    currentUser.secondaryPhoneOtp = otp;
+    currentUser.secondaryPhoneOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    currentUser.secondaryPhone = cleanPhone;
+    await currentUser.save();
+
+    console.log(`\n📲 SIMULATED SMS TO ${cleanPhone}: Your secondary phone OTP is ${otp}\n`);
+    res.status(200).json({ message: "OTP sent to secondary phone number", requiresOTP: true });
+  } catch (error) {
+    console.error("Secondary Phone Sync Request Error:", error);
+    res.status(500).json({ message: "Error requesting secondary phone sync" });
+  }
+};
+
+// @desc    Verify OTP and complete secondary phone sync (with invite merge)
+const verifySecondaryPhoneSync = async (req, res) => {
+  try {
+    const { phoneNumber, otp } = req.body;
+    const userId = req.user.id;
+
+    const currentUser = await User.findById(userId);
+    if (!currentUser) return res.status(404).json({ message: "User not found" });
+
+    // Validate OTP
+    if (
+      !currentUser.secondaryPhoneOtp ||
+      currentUser.secondaryPhoneOtp !== otp ||
+      currentUser.secondaryPhoneOtpExpires < new Date()
+    ) {
+      return res.status(400).json({ message: "Invalid or expired OTP." });
+    }
+
+    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+    const coreDigits = cleanPhone.replace(/\D/g, '').slice(-10);
+
+    // Merge placeholder user if one exists for this number
+    let placeholderUser;
+    if (coreDigits.length === 10) {
+      placeholderUser = await User.findOne({
+        phoneNumber: { $regex: coreDigits + '$' },
+        isRegistered: { $ne: true }
+      });
+    } else {
+      placeholderUser = await User.findOne({
+        phoneNumber: cleanPhone,
+        isRegistered: { $ne: true }
+      });
+    }
+
+    if (placeholderUser) {
+      await ReceivedInvitation.updateMany({ recipient: placeholderUser._id }, { recipient: userId });
+      await Invitation.updateMany(
+        { invitedUsers: placeholderUser._id },
+        { $addToSet: { invitedUsers: userId }, $pull: { invitedUsers: placeholderUser._id } }
+      );
+      await Group.updateMany(
+        { members: placeholderUser._id },
+        { $addToSet: { members: userId }, $pull: { members: placeholderUser._id } }
+      );
+      await placeholderUser.deleteOne();
+    }
+
+    // Mark secondary phone as verified and clear OTP fields
+    await User.findByIdAndUpdate(userId, {
+      secondaryPhone: cleanPhone,
+      isSecondaryPhoneVerified: true,
+      $unset: { secondaryPhoneOtp: 1, secondaryPhoneOtpExpires: 1 }
+    });
+
+    const updatedUser = await User.findById(userId).select('-password');
+
+    res.status(200).json({
+      message: "Secondary phone synced successfully!",
+      user: {
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        secondaryPhone: updatedUser.secondaryPhone,
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        isSecondaryPhoneVerified: updatedUser.isSecondaryPhoneVerified,
+        profileImage: updatedUser.profileImage || ''
+      }
+    });
+  } catch (error) {
+    console.error("Secondary Phone Sync Verify Error:", error);
+    res.status(500).json({ message: "Secondary phone sync failed" });
+  }
+};
+
+
 module.exports = {
   registerUser,
   loginUser,
@@ -598,6 +718,8 @@ module.exports = {
   googleLogin,
   requestPhoneSync,
   verifyPhoneSync,
+  requestSecondaryPhoneSync,
+  verifySecondaryPhoneSync,
   updatePushToken,
   testPushNotification,
   savePushToken

@@ -34,6 +34,21 @@ const userSchema = new mongoose.Schema({
   phoneOtpExpires: {
     type: Date
   },
+  secondaryPhone: {
+    type: String,
+    default: null,
+    sparse: true
+  },
+  isSecondaryPhoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  secondaryPhoneOtp: {
+    type: String
+  },
+  secondaryPhoneOtpExpires: {
+    type: Date
+  },
   expoPushToken: {
   type: String,
   default: ''
