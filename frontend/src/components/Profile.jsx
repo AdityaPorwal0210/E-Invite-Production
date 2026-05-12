@@ -173,6 +173,7 @@ const Profile = () => {
                   src={user.profileImage?.replace('http://', 'https://')}
                   alt="Profile"
                   className="w-24 h-24 rounded-full object-cover border-4 border-indigo-100"
+                  crossOrigin="anonymous"
                 />
               ) : (
                 <div className="w-24 h-24 rounded-full bg-indigo-600 flex items-center justify-center text-white text-3xl font-bold border-4 border-indigo-100">

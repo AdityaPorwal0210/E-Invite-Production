@@ -507,7 +507,7 @@ const InvitationDetail = () => {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
         <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl overflow-hidden">
           {invitation.coverImage ? (
-            <img src={invitation.coverImage} alt="Event Cover" className="w-full h-64 object-cover" />
+            <img src={invitation.coverImage} alt="Event Cover" className="w-full h-64 object-cover" crossOrigin="anonymous"/>
           ) : (
             <div className="w-full h-64 bg-gray-200 flex items-center justify-center text-5xl">📅</div>
           )}

@@ -149,6 +149,7 @@ const Inbox = () => {
                       src={invitation.coverImage?.replace('http://', 'https://')} 
                       alt={invitation.title}
                       className="w-full h-full object-cover"
+                      crossOrigin="anonymous"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gray-300">
