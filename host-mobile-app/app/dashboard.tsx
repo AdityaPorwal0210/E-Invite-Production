@@ -35,6 +35,7 @@ interface Event {
   coverImage?: string;
   user?: string;
   isRead?: boolean;
+  isPremium?: boolean;
   host?: {
     _id?: string;
     name?: string;
@@ -297,6 +298,11 @@ export default function Dashboard() {
             <Text style={[styles.cardTitle, { flexShrink: 1 }]} numberOfLines={1}>
               {item.title || 'Untitled Event'}
             </Text>
+            {item.isPremium && (
+              <View style={styles.premiumCardBadge}>
+                <Text style={styles.premiumCardBadgeText}>⭐</Text>
+              </View>
+            )}
             {isNew && (
               <View style={styles.newBadge}>
                 <Text style={styles.newBadgeText}>NEW</Text>
@@ -652,6 +658,15 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   newBadgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+
+  premiumCardBadge: {
+    backgroundColor: '#FEF9C3',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  premiumCardBadgeText: { fontSize: 11 },
 
   emptyStateContainer: {
     flex: 1,
