@@ -40,6 +40,7 @@ export default function PremiumUpgradeModal({ invitationId, visible, onClose, on
       };
 
       // 2. Open the Native Razorpay Checkout
+      console.log("RAZORPAY OPTIONS:", options);
       RazorpayCheckout.open(options)
         .then(async (response: any) => {
           // 3. Payment Succeeded on the phone. Verify it on the server.

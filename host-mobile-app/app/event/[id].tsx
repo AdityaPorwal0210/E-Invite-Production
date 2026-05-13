@@ -20,8 +20,12 @@ import ImageCarousel from '../../components/ImageCarousel';
 import { generateGoogleCalendarLink } from '../../utils/calendar';
 import { optimizeCloudinaryUrl } from '../../utils/optimizeImage';
 
+// 🚨 INJECTED NATIVE MODAL
+import PremiumUpgradeModal from '../../components/PremiumUpgradeModal';
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 const BASE_URL = API_URL.replace('/api', '');
+const FREE_GUEST_LIMIT = 50;
 
 interface Attachment {
   uri: string;
@@ -70,7 +74,10 @@ export default function EventDetailsHub() {
   const [savingCoHosts, setSavingCoHosts] = useState(false);
   const coHostSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 🧪 HARDWARE HEARTBEAT
+  // 🚨 PAYWALL STATE
+  const [paywallActive, setPaywallActive] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
   console.log('🚀 EVENT HUB MOUNTED. ID:', id);
 
   const checkAuthAndFetch = useCallback(async () => {
@@ -96,7 +103,14 @@ export default function EventDetailsHub() {
 
       const headers = { Authorization: `Bearer ${token}` };
 
-      // 🚨 OFFLINE SHORT-CIRCUIT
+      // 🚨 FETCH PAYWALL CONFIG
+      try {
+        const configRes = await axios.get(`${API_URL}/config/paywall`);
+        setPaywallActive(configRes.data.paywallActive);
+      } catch (err) {
+        console.log("Failed to fetch paywall config");
+      }
+
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
 
@@ -203,7 +217,6 @@ export default function EventDetailsHub() {
     }
   }, [id]);
 
-  // --- REAL-TIME RSVP WEBSOCKET LISTENER ---
   useEffect(() => {
     if (!id) return;
     console.log('🔌 ATTEMPTING CONNECTION TO:', BASE_URL);
@@ -216,20 +229,13 @@ export default function EventDetailsHub() {
       console.log('✅ SOCKET CONNECTED SUCCESS. ID:', socket.id);
     });
 
-    socket.on('connect_error', (err) => {
-      console.log('❌ SOCKET CONNECTION ERROR:', err.message);
-    });
-
     socket.on('rsvp-updated', (payload: any) => {
-      console.log('🔥 REAL-TIME RSVP RECEIVED:', payload);
       if (payload.eventId === id) {
-        console.log('🔄 Match found. Refreshing guest list...');
         silentRefresh();
       }
     });
 
     return () => {
-      console.log('🔌 Cleaning up socket...');
       socket.disconnect();
     };
   }, [id, silentRefresh]);
@@ -238,13 +244,8 @@ export default function EventDetailsHub() {
     if (!dateString) return 'Date TBA';
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
+      weekday: 'long', year: 'numeric', month: 'long', 
+      day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
     });
   };
 
@@ -263,7 +264,13 @@ export default function EventDetailsHub() {
     }
   };
 
+  // 🚨 PAYWALL LOCK FOR CO-HOSTS
   const openCoHostModal = () => {
+    if (paywallActive && !invitation?.isPremium) {
+      Alert.alert("Premium Required", "Co-host management is a Premium feature.");
+      setShowUpgradeModal(true);
+      return;
+    }
     setSelectedCoHosts(invitation?.delegates || []);
     setShowCoHostModal(true);
   };
@@ -331,9 +338,8 @@ export default function EventDetailsHub() {
             setInvitingGroup(groupId);
             try {
               const token = await AsyncStorage.getItem('authToken');
-              const targetUrl = `${API_URL}/groups/${groupId}/send-invitation/${id}`;
               const res = await axios.post(
-                targetUrl,
+                `${API_URL}/groups/${groupId}/send-invitation/${id}`,
                 {}, 
                 { headers: { Authorization: `Bearer ${token}` } }
               );
@@ -373,7 +379,7 @@ export default function EventDetailsHub() {
       if (canOpen) {
         await Linking.openURL(whatsappUrl);
       } else {
-        Alert.alert('WhatsApp Not Installed', 'WhatsApp is not installed on your device. Please install WhatsApp to share directly.');
+        Alert.alert('WhatsApp Not Installed', 'WhatsApp is not installed on your device.');
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to open WhatsApp');
@@ -383,7 +389,6 @@ export default function EventDetailsHub() {
   const exportGuestList = async () => {
     try {
       const guestListToExport = searchQuery.trim() ? filteredGuests : guests;
-      
       if (guestListToExport.length === 0) {
         Alert.alert('No Guests', 'There are no guests to export.');
         return;
@@ -399,7 +404,6 @@ export default function EventDetailsHub() {
       };
 
       const headers = ['Name', 'Contact', 'RSVP Status'];
-      
       const rows = guestListToExport.map((guest: any) => {
         const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
         const guestEmail = guest.recipient?.email || '';
@@ -411,30 +415,21 @@ export default function EventDetailsHub() {
         else if (guest.rsvpStatus === 'declined') status = "Can't Go";
         else if (guest.rsvpStatus === 'tentative') status = 'Maybe';
         
-        return [
-          escapeCSV(guestName),
-          escapeCSV(contact),
-          escapeCSV(status)
-        ].join(',');
+        return [escapeCSV(guestName), escapeCSV(contact), escapeCSV(status)].join(',');
       });
 
       const csvContent = [headers.join(','), ...rows].join('\n');
-
       const dir = (FileSystem as any).documentDirectory;
       const fileUri = `${dir}guest-list.csv`;
       
       await FileSystem.writeAsStringAsync(fileUri, csvContent);
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'text/csv',
-          dialogTitle: 'Export Guest List',
-        });
+        await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export Guest List' });
       } else {
         Alert.alert('Sharing Not Available', 'Sharing is not available on this device.');
       }
     } catch (error) {
-      console.error('Export error:', error);
       Alert.alert('Export Failed', 'Failed to export guest list. Please try again.');
     }
   };
@@ -528,7 +523,6 @@ export default function EventDetailsHub() {
       setAttachments([]); 
       checkAuthAndFetch();
     } catch (err: any) {
-      console.error("Save Error:", err.response?.data || err.message);
       Alert.alert('Error', err.response?.data?.message || 'Failed to update event media');
     } finally {
       setSaving(false);
@@ -594,7 +588,21 @@ export default function EventDetailsHub() {
     );
   }
 
-  if (!invitation && authCheckComplete) return null; 
+  // 🚨 FIX FOR THE BLANK SCREEN OF DEATH
+  if (!invitation && authCheckComplete) {
+    return (
+      <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
+        <Stack.Screen options={{ title: 'Error', headerShown: false }} />
+        <Text style={{ color: COLORS.danger, fontSize: 16, fontWeight: 'bold' }}>Failed to load event data.</Text>
+        <TouchableOpacity 
+          onPress={checkAuthAndFetch} 
+          style={{ marginTop: 20, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: COLORS.primary, borderRadius: 8 }}
+        >
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (isDeleting) {
     return (
@@ -620,6 +628,8 @@ export default function EventDetailsHub() {
   const rawImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
   const allImages = rawImages.map((img: string) => optimizeCloudinaryUrl(img, 800));
 
+  const atLimit = guests.length >= FREE_GUEST_LIMIT;
+
   return (
     <>
       <Stack.Screen options={{ title: 'Event Details', headerShown: false }} />
@@ -640,7 +650,6 @@ export default function EventDetailsHub() {
           <View style={styles.detailsCard}>
             <Text style={styles.title}>{invitation.title}</Text>
           
-          {/* Host Section */}
           <View style={styles.infoRow}>
             <Text style={styles.icon}>👤</Text>
             <Text style={styles.infoText}>
@@ -649,7 +658,6 @@ export default function EventDetailsHub() {
             </Text>
           </View>
 
-          {/* Co-Hosts Section - conditionally rendered */}
           {invitation.delegates && invitation.delegates.length > 0 && (
             <View style={styles.infoRow}>
               <Text style={styles.icon}>👑</Text>
@@ -690,6 +698,21 @@ export default function EventDetailsHub() {
             {isHost ? (
               <View>
                 <Text style={styles.sectionTitle}>RSVP Analytics</Text>
+                
+                {/* 🚨 INJECTED UPGRADE BUTTON */}
+                {invitation.isPremium ? (
+                  <View style={[styles.button, { backgroundColor: '#FEF9C3', marginBottom: SPACING.md, paddingVertical: 10 }]}>
+                    <Text style={{ color: '#92400E', fontWeight: 'bold', fontSize: 14 }}>⭐ Premium Active</Text>
+                  </View>
+                ) : paywallActive ? (
+                  <TouchableOpacity 
+                    style={[styles.button, { backgroundColor: '#F59E0B', marginBottom: SPACING.md, paddingVertical: 10 }]} 
+                    onPress={() => setShowUpgradeModal(true)}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 }}>⭐ Upgrade — ₹419</Text>
+                  </TouchableOpacity>
+                ) : null}
+
                 <View style={styles.analyticsRow}>
                   <View style={[styles.analyticsCard, { backgroundColor: COLORS.success }]}><Text style={styles.analyticsNumber}>{attending}</Text><Text style={styles.analyticsLabel}>Going</Text></View>
                   <View style={[styles.analyticsCard, { backgroundColor: '#F59E0B' }]}><Text style={styles.analyticsNumber}>{pending}</Text><Text style={styles.analyticsLabel}>Pending</Text></View>
@@ -777,14 +800,14 @@ export default function EventDetailsHub() {
                 >
                   <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>💬 Share via WhatsApp</Text>
                 </TouchableOpacity>
-                {/* INJECTED HOST CALENDAR BUTTON */}
+
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: '#EEF2FF', marginTop: SPACING.sm, borderWidth: 1, borderColor: '#C7D2FE' }]} 
                   onPress={() => Linking.openURL(generateGoogleCalendarLink(invitation))}
                 >
                   <Text style={{ color: '#312E81', fontWeight: 'bold', fontSize: 14 }}>📅 Add to Google Calendar</Text>
                 </TouchableOpacity>
-                {/* --------------------------- */}
+
                 <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primaryLight, marginTop: SPACING.sm }]} onPress={() => setIsEditing(!isEditing)}>
                   <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>{isEditing ? 'Cancel Edit' : 'Edit Event Media'}</Text>
                 </TouchableOpacity>
@@ -842,7 +865,6 @@ export default function EventDetailsHub() {
                   </TouchableOpacity>
                 </View>
 
-                {/* MOBILE CALENDAR BUTTON */}
                 {myRsvp === 'accepted' && (
                   <View style={{ marginTop: 16, padding: 12, backgroundColor: '#EEF2FF', borderRadius: 8, borderWidth: 1, borderColor: '#E0E7FF' }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: '#312E81', marginBottom: 8 }}>
@@ -1011,6 +1033,15 @@ export default function EventDetailsHub() {
         </View>
       </Modal>
 
+      {/* 🚨 NATIVE UPGRADE MODAL */}
+      <PremiumUpgradeModal
+        visible={showUpgradeModal}
+        invitationId={id as string}
+        onClose={() => setShowUpgradeModal(false)}
+        onSuccess={(updatedInvitation) => {
+          setInvitation(updatedInvitation);
+        }}
+      />
     </>
   );
 }
