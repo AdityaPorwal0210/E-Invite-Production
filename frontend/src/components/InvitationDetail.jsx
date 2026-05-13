@@ -22,6 +22,7 @@ const InvitationDetail = () => {
   const { user, loading: authLoading, fetchNotificationCounts } = useContext(AuthContext);
 
   // State
+  const [paywallActive, setPaywallActive] = useState(false);
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -167,7 +168,15 @@ const InvitationDetail = () => {
       socket.disconnect();
       console.log('🔌 WebSocket disconnected');
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isOwner]);
+
+  // Fetch Paywall Status
+  useEffect(() => {
+    api.get('/config/paywall')
+      .then(res => setPaywallActive(res.data.paywallActive))
+      .catch(err => console.error("Failed to fetch paywall config", err));
+  }, []);
 
   // ============ ALL FUNCTIONS AFTER USE EFFECT ============
   
@@ -248,7 +257,7 @@ const InvitationDetail = () => {
       if (type === 'groupId') payload.groupId = value;
       await api.put(`/invitations/${id}/revoke`, payload);
       fetchInvitation(true);
-    } catch{
+    } catch {
       alert('Failed to remove guest.');
     }
   };
@@ -274,7 +283,6 @@ const InvitationDetail = () => {
     setSearchingUsers(true);
     try {
       const response = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
-      // FIX: Use getStringId directly on the object/string instead of breaking it with ._id
       const guestListIds = guestList.map(g => getStringId(g.recipient));
       const invitedUserIds = invitation?.invitedUsers?.map(u => getStringId(u)) || [];
       const hostUserId = getStringId(invitation?.host);
@@ -615,27 +623,33 @@ const InvitationDetail = () => {
                   💬 Share via WhatsApp
                 </button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
-                  <button 
-                    onClick={() => {
-                      if (invitation.isPremium) {
-                        setShowCoHostModal(true);
-                      } else {
-                        toast.error('Co-host management is a Premium feature.');
-                        setShowUpgradeModal(true);
-                      }
-                    }} 
-                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
-                  >
-                    👑 Co-Hosts
-                  </button>
+                
+                {/* CORRECTED CO-HOST BUTTON LOGIC */}
+                <button 
+                  onClick={() => {
+                    if (!paywallActive || invitation.isPremium) {
+                      setShowCoHostModal(true);
+                    } else {
+                      toast.error('Co-host management is a Premium feature.');
+                      setShowUpgradeModal(true);
+                    }
+                  }} 
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
+                >
+                  👑 Co-Hosts
+                </button>
 
-                {invitation.isPremium ? (
+                {/* CORRECTED PREMIUM / UPGRADE BUTTON LOGIC */}
+                {invitation.isPremium && (
                   <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm font-bold rounded-full flex items-center gap-1">⭐ Premium</span>
-                ) : (
+                )}
+
+                {!invitation.isPremium && paywallActive && (
                   <button onClick={() => setShowUpgradeModal(true)} className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-400 text-white rounded-md text-sm font-bold hover:opacity-90">
                     ⭐ Upgrade — ₹419
                   </button>
                 )}
+
                 <span className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">Your Event</span>
               </div>
             )}
@@ -885,7 +899,7 @@ const InvitationDetail = () => {
         setShowCoHostModal={setShowCoHostModal}
       />
       
-           {/* Premium Upgrade Modal */}
+      {/* Premium Upgrade Modal */}
       {showUpgradeModal && (
         <PremiumUpgradeModal
           invitationId={id}

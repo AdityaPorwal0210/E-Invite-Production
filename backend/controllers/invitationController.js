@@ -787,8 +787,11 @@ const shareInvitationLater = async (req, res) => {
     }
 
     // === GUEST LIMIT ENFORCEMENT ===
+    const PAYWALL_ACTIVE = process.env.PAYWALL_ACTIVE === 'true';
     const FREE_GUEST_LIMIT = 50;
-    if (!invitation.isPremium) {
+    
+    // Only enforce the limit if the paywall is active AND the event is not premium
+    if (PAYWALL_ACTIVE && !invitation.isPremium) {
       const currentGuestCount = await ReceivedInvitation.countDocuments({ invitation: id });
       const incomingCount = (Array.isArray(newUsers) ? newUsers.length : 0)
         + (Array.isArray(newEmails) ? newEmails.length : 0)
@@ -1253,13 +1256,17 @@ const updateDelegates = async (req, res) => {
     }
 
     // 🚨 THE PAYWALL LOCK 🚨
-    if (!invitation.isPremium && delegates && delegates.length > 0) {
+    const PAYWALL_ACTIVE = process.env.PAYWALL_ACTIVE === 'true';
+    
+    // Only block co-hosts if the paywall is active AND they aren't premium
+    if (PAYWALL_ACTIVE && !invitation.isPremium && delegates && delegates.length > 0) {
       return res.status(403).json({ 
         message: "Co-host management requires a Premium upgrade.",
         requiresUpgrade: true 
       });
     }
 
+    
     invitation.delegates = delegates;
     await invitation.save();
 
