@@ -1252,6 +1252,14 @@ const updateDelegates = async (req, res) => {
       return res.status(403).json({ message: "Only the primary host can manage co-hosts." });
     }
 
+    // 🚨 THE PAYWALL LOCK 🚨
+    if (!invitation.isPremium && delegates && delegates.length > 0) {
+      return res.status(403).json({ 
+        message: "Co-host management requires a Premium upgrade.",
+        requiresUpgrade: true 
+      });
+    }
+
     invitation.delegates = delegates;
     await invitation.save();
 

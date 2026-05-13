@@ -615,7 +615,20 @@ const InvitationDetail = () => {
                   💬 Share via WhatsApp
                 </button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
-                <button onClick={() => setShowCoHostModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">👑 Co-Hosts</button>
+                  <button 
+                    onClick={() => {
+                      if (invitation.isPremium) {
+                        setShowCoHostModal(true);
+                      } else {
+                        toast.error('Co-host management is a Premium feature.');
+                        setShowUpgradeModal(true);
+                      }
+                    }} 
+                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm"
+                  >
+                    👑 Co-Hosts
+                  </button>
+
                 {invitation.isPremium ? (
                   <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm font-bold rounded-full flex items-center gap-1">⭐ Premium</span>
                 ) : (
