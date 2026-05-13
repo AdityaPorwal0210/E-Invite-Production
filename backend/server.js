@@ -14,6 +14,7 @@ const userRoutes = require('./routes/userRoutes');
 const invitationRoutes = require('./routes/invitationRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const paymentRoutes = require('./routes/paymentRoutes'); // MOVED TO TOP
 
 // Connect to Database
 connectDB();
@@ -52,6 +53,7 @@ app.use(cors({
     ],
     credentials: true, 
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 
@@ -60,6 +62,15 @@ app.use('/api/users', userRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/payments', paymentRoutes); // MOUNTED CLEANLY
+
+// The Kill Switch Config
+app.get('/api/config/paywall', (req, res) => {
+  res.json({ 
+    paywallActive: process.env.PAYWALL_ACTIVE === 'true',
+    freeLimit: 50 
+  });
+});
 
 // Health Check Route
 app.get('/', (req, res) => {

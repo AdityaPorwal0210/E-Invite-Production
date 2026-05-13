@@ -786,6 +786,25 @@ const shareInvitationLater = async (req, res) => {
       return res.status(403).json({ message: "Not authorized to share this invitation" });
     }
 
+    // === GUEST LIMIT ENFORCEMENT ===
+    const FREE_GUEST_LIMIT = 50;
+    if (!invitation.isPremium) {
+      const currentGuestCount = await ReceivedInvitation.countDocuments({ invitation: id });
+      const incomingCount = (Array.isArray(newUsers) ? newUsers.length : 0)
+        + (Array.isArray(newEmails) ? newEmails.length : 0)
+        + (Array.isArray(newPhones) ? newPhones.length : 0);
+
+      if (currentGuestCount + incomingCount > FREE_GUEST_LIMIT) {
+        return res.status(403).json({
+          message: `Free events are limited to ${FREE_GUEST_LIMIT} guests. You currently have ${currentGuestCount}. Upgrade to Premium to invite unlimited guests.`,
+          requiresUpgrade: true,
+          currentCount: currentGuestCount,
+          limit: FREE_GUEST_LIMIT
+        });
+      }
+    }
+    // ================================
+
     let groupsArray = [];
     if (newGroups) {
       if (Array.isArray(newGroups)) {

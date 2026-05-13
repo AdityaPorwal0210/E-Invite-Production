@@ -65,17 +65,25 @@ const invitationSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
     },
-    reminderSent: {
-    type: Boolean,
-    default: false
-  },
     rsvpStatus: {
       type: String,
       enum: ['Pending', 'Attending', 'Declined'],
       default: 'Pending'
     },
     ticketId: String
-  }]
+  }],
+  isPremium: {
+    type: Boolean,
+    default: false
+  },
+  paymentId: {
+    type: String,
+    default: null
+  },
+  orderId: {
+    type: String,
+    default: null
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Invitation", invitationSchema);

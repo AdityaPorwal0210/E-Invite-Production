@@ -1,12 +1,11 @@
-import { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
-import { generateGoogleCalendarLink, downloadICS } from '../utils/calendar.js';
-import { optimizeCloudinaryUrl } from '../utils/optimizeImage';
+import PremiumUpgradeModal from './PremiumUpgradeModal';
 
 // Connect to the backend socket server
 const SOCKET_URL = 'https://invitoinbox.onrender.com';
@@ -37,12 +36,15 @@ const InvitationDetail = () => {
   const [userSearch, setUserSearch] = useState('');
   const [userResults, setUserResults] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
+  const [, setUserSalutations] = useState({});
+  const [, setSearchingUsers] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCoHostModal, setShowCoHostModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
     title: '',
@@ -65,8 +67,8 @@ const InvitationDetail = () => {
     return value.toString();
   };
 
-  const currentUserId = user ? getStringId(user?._id) || getStringId(user?.id) : null;
-  const hostId = invitation ? (getStringId(invitation?.host?._id) || getStringId(invitation?.host) || getStringId(invitation?.user)) : null;
+  const currentUserId = user ? getStringId(user) : null;
+  const hostId = invitation ? (getStringId(invitation?.host) || getStringId(invitation?.user)) : null;
   
   // 1. Are they the primary creator?
   const isPrimaryHost = Boolean(currentUserId && hostId && currentUserId === hostId);
@@ -75,103 +77,28 @@ const InvitationDetail = () => {
   const isDelegate = Boolean(
     currentUserId && 
     invitation?.delegates && 
-    invitation.delegates.some(delegate => getStringId(delegate?._id || delegate) === currentUserId)
+    invitation.delegates.some(delegate => getStringId(delegate) === currentUserId)
   );
 
   // 3. If they are EITHER, they get the admin dashboard.
   const isOwner = isPrimaryHost || isDelegate;
-  
-  // FIX: Memoize arrays to prevent exhaustive-deps triggering infinite loops
-  const guestList = useMemo(() => invitation?.guestList || [], [invitation?.guestList]);
-  const pendingGuests = useMemo(() => invitation?.pendingGuestEmails || [], [invitation?.pendingGuestEmails]);
-
-  // ============ MEMOIZED FUNCTIONS ============
-  const fetchInvitation = useCallback(async (silent = false) => {
-    if (!silent) {
-      setLoading(true);
-    }
-    
-    try {
-      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
-      const response = await api.get(endpoint);
-      setInvitation(response.data);
-      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
-      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-      if (!silent) setLoading(false);
-    } catch (err) {
-      console.error('fetchInvitation error:', err);
-      if (!silent && !err.response) {
-        setError('Failed to load event. Please refresh the page.');
-      }
-      if (!silent) setLoading(false);
-    }
-  }, [id, user]);
-
-  const refreshInvitationData = useCallback(async () => {
-    if (!user) return;
-    
-    try {
-      const endpoint = `/invitations/${id}`;
-      const response = await api.get(endpoint);
-      setInvitation(response.data);
-      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
-      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
-    } catch (err) {
-      console.error('❌ Background refresh failed:', err.message);
-    }
-  }, [id, user]);
-
-  const fetchGroups = useCallback(async () => {
-    setGroupsLoading(true);
-    try {
-      const response = await api.get('/groups');
-      const alreadyShared = invitation?.sharedGroups?.map(g => g._id || g) || [];
-      const processed = (response.data || []).map(g => ({
-        ...g,
-        isAlreadyShared: alreadyShared.includes(g._id)
-      }));
-      setGroups(processed);
-    } catch (err) {
-      console.error('Failed to fetch groups:', err);
-    } finally {
-      setGroupsLoading(false);
-    }
-  }, [invitation?.sharedGroups]);
-
-  const searchUsers = useCallback(async (query) => {
-    try {
-      const response = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
-      const guestListIds = guestList.map(g => getStringId(g.recipient?._id));
-      const invitedUserIds = invitation?.invitedUsers?.map(u => getStringId(u._id)) || [];
-      const hostUserId = getStringId(invitation?.host?._id);
-
-      const processed = response.data.map(u => {
-        const userId = getStringId(u._id);
-        return {
-          ...u,
-          isAlreadyInvited: guestListIds.includes(userId) || invitedUserIds.includes(userId),
-          isHost: userId === hostUserId
-        };
-      });
-
-      setUserResults(processed.filter(u => !u.isHost));
-    } catch (err) {
-      console.error('Failed to search users:', err);
-    }
-  }, [guestList, invitation?.invitedUsers, invitation?.host]);
+  const guestList = invitation?.guestList || [];
+  const pendingGuests = invitation?.pendingGuestEmails || [];
 
   // ============ USE EFFECT BLOCKS AFTER DERIVED VARIABLES ============
   useEffect(() => {
     if (!authLoading) {
       fetchInvitation();
     }
-  }, [authLoading, fetchInvitation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, authLoading, user]);
 
   useEffect(() => {
     if (showInviteModal) {
       fetchGroups();
     }
-  }, [showInviteModal, fetchGroups]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInviteModal]);
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -192,8 +119,10 @@ const InvitationDetail = () => {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [userSearch, showInviteModal, searchUsers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userSearch, showInviteModal]);
 
+  // Auto-mark as read when opening
   useEffect(() => {
     if (user && invitation && !isOwner && !invitation.isRead) {
       api.put(`/invitations/${id}/read`)
@@ -203,21 +132,28 @@ const InvitationDetail = () => {
         })
         .catch(err => console.error('Failed to mark as read:', err));
     }
-  }, [invitation, isOwner, user, id, fetchNotificationCounts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invitation?.isRead, isOwner, user, id, fetchNotificationCounts]);
 
-  // WebSocket connection for real-time RSVP updates
+  // WebSocket connection for real-time RSVP updates (only for event owners)
   useEffect(() => {
     if (!isOwner) {
       return;
     }
 
     socket.connect();
+    console.log('🔌 WebSocket connecting for real-time RSVP updates...');
 
     socket.on('rsvp-updated', (payload) => {
+      console.log('📡 Real-time RSVP update received:', payload);
       if (payload.eventId === id) {
         refreshInvitationData();
         toast.success('A guest just RSVP\'d! Guest list updated.');
       }
+    });
+
+    socket.on('connect', () => {
+      console.log('✅ WebSocket connected:', socket.id);
     });
 
     socket.on('connect_error', (err) => {
@@ -229,10 +165,48 @@ const InvitationDetail = () => {
       socket.off('connect');
       socket.off('connect_error');
       socket.disconnect();
+      console.log('🔌 WebSocket disconnected');
     };
-  }, [id, isOwner, refreshInvitationData]);
+  }, [id, isOwner]);
 
-  // ============ ALL OTHER FUNCTIONS ============
+  // ============ ALL FUNCTIONS AFTER USE EFFECT ============
+  
+  const fetchInvitation = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    
+    try {
+      const endpoint = user ? `/invitations/${id}` : `/invitations/${id}/teaser`;
+      const response = await api.get(endpoint);
+      setInvitation(response.data);
+      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
+      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
+      if (!silent) setLoading(false);
+    } catch (err) {
+      console.error('fetchInvitation error:', err);
+      if (!silent && !err.response) {
+        setError('Failed to load event. Please refresh the page.');
+      }
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const refreshInvitationData = async () => {
+    console.log('🔄 Background refresh triggered...');
+    if (!user) return;
+    
+    try {
+      const endpoint = `/invitations/${id}`;
+      const response = await api.get(endpoint);
+      setInvitation(response.data);
+      if (response.data.myRsvp) setMyRsvp(response.data.myRsvp);
+      if (response.data.isSaved !== undefined) setIsSaved(response.data.isSaved);
+      console.log('✅ Guest list updated silently');
+    } catch (err) {
+      console.error('❌ Background refresh failed:', err.message);
+    }
+  };
 
   const handleRSVP = async (status) => {
     const previousRsvp = myRsvp;
@@ -274,9 +248,51 @@ const InvitationDetail = () => {
       if (type === 'groupId') payload.groupId = value;
       await api.put(`/invitations/${id}/revoke`, payload);
       fetchInvitation(true);
-    } catch (error) {
-      console.error("Revoke error:", error);
+    } catch{
       alert('Failed to remove guest.');
+    }
+  };
+
+  const fetchGroups = async () => {
+    setGroupsLoading(true);
+    try {
+      const response = await api.get('/groups');
+      const alreadyShared = invitation?.sharedGroups?.map(g => g._id || g) || [];
+      const processed = (response.data || []).map(g => ({
+        ...g,
+        isAlreadyShared: alreadyShared.includes(g._id)
+      }));
+      setGroups(processed);
+    } catch (err) {
+      console.error('Failed to fetch groups:', err);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const searchUsers = async (query) => {
+    setSearchingUsers(true);
+    try {
+      const response = await api.get(`/users/search?query=${encodeURIComponent(query)}`);
+      // FIX: Use getStringId directly on the object/string instead of breaking it with ._id
+      const guestListIds = guestList.map(g => getStringId(g.recipient));
+      const invitedUserIds = invitation?.invitedUsers?.map(u => getStringId(u)) || [];
+      const hostUserId = getStringId(invitation?.host);
+
+      const processed = response.data.map(u => {
+        const userId = getStringId(u);
+        return {
+          ...u,
+          isAlreadyInvited: guestListIds.includes(userId) || invitedUserIds.includes(userId),
+          isHost: userId === hostUserId
+        };
+      });
+
+      setUserResults(processed.filter(u => !u.isHost));
+    } catch (err) {
+      console.error('Failed to search users:', err);
+    } finally {
+      setSearchingUsers(false);
     }
   };
 
@@ -286,8 +302,8 @@ const InvitationDetail = () => {
     );
   };
 
-  const addUser = (userData) => {
-    setSelectedUsers(prev => [...prev, { ...userData, salutation: '' }]);
+  const addUser = (user) => {
+    setSelectedUsers(prev => [...prev, { ...user, salutation: '' }]);
     setUserSearch('');
     setUserResults([]);
   };
@@ -369,11 +385,17 @@ const InvitationDetail = () => {
         setShowInviteModal(false);
         setSelectedGroups([]);
         setSelectedUsers([]);
+        setUserSalutations({});
         setUserSearch('');
         setInviteSuccess('');
       }, 1500);
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to send invitations');
+      if (err.response?.data?.requiresUpgrade) {
+        toast.error('Guest limit reached. Upgrade to Premium for unlimited guests.');
+        setShowUpgradeModal(true);
+      } else {
+        toast.error(err.response?.data?.message || 'Failed to send invitations');
+      }
     } finally {
       setInviting(false);
     }
@@ -423,8 +445,7 @@ const InvitationDetail = () => {
     try {
       await api.delete(`/invitations/${id}`);
       navigate('/');
-    } catch (error) {
-      console.error("Delete error:", error);
+    } catch {
       alert('Failed to delete event');
       setIsDeleting(false);
     }
@@ -455,8 +476,7 @@ const InvitationDetail = () => {
       const response = await api.put(`/invitations/${id}`, editForm);
       setInvitation(response.data);
       setShowEditModal(false);
-    } catch (error) {
-      console.error("Update error:", error);
+    } catch {
       alert('Failed to update event');
     } finally {
       setUpdating(false);
@@ -509,7 +529,7 @@ const InvitationDetail = () => {
       <div className="min-h-screen bg-gray-50 flex flex-col items-center py-12 px-4">
         <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl overflow-hidden">
           {invitation.coverImage ? (
-            <img src={optimizeCloudinaryUrl(invitation.coverImage, 1024)} alt="Event Cover" className="w-full h-64 object-cover" crossOrigin="anonymous"/>
+            <img src={invitation.coverImage} alt="Event Cover" className="w-full h-64 object-cover" />
           ) : (
             <div className="w-full h-64 bg-gray-200 flex items-center justify-center text-5xl">📅</div>
           )}
@@ -517,6 +537,7 @@ const InvitationDetail = () => {
             <h1 className="text-3xl font-extrabold text-gray-900 mb-2">{invitation.title}</h1>
             <p className="text-lg text-gray-500 mb-2">Hosted by <span className="font-semibold text-gray-900">{invitation.host?.name || 'Unknown'}</span></p>
             
+            {/* The Hook: Showing the date pulls them in before asking for a login */}
             <p className="font-medium text-indigo-600 mb-8 text-xl">
               {invitation.eventDate ? formatDateTime(invitation.eventDate) : 'Date & Time TBA'}
             </p>
@@ -524,6 +545,7 @@ const InvitationDetail = () => {
             <div className="border-t pt-8">
               <p className="mb-6 text-gray-700 font-medium">Log in or create an account to RSVP, view the venue map, and see the guest list.</p>
               
+              {/* SMART ROUTING via state */}
               <button 
                 onClick={() => navigate('/register', { state: { returnTo: location.pathname } })} 
                 className="w-full py-3 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 mb-3 font-bold shadow-sm transition-colors"
@@ -545,11 +567,10 @@ const InvitationDetail = () => {
 
   // ============ FULL APP RENDER ============
   const attachments = invitation?.attachments || [];
-  const rawImages = [
+  const imageFiles = [
     ...(invitation?.coverImage ? [invitation.coverImage] : []),
     ...attachments.filter(a => a.fileType?.includes('image')).map(a => a.url)
   ];
-  const imageFiles = rawImages.map(img => optimizeCloudinaryUrl(img, 1024));
   const pdfFiles = attachments.filter(a => a.fileType?.includes('pdf'));
 
   return (
@@ -595,6 +616,13 @@ const InvitationDetail = () => {
                 </button>
                 <button onClick={() => navigate(`/invitation/${id}/guests`)} className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm">📊 Guest List</button>
                 <button onClick={() => setShowCoHostModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-sm">👑 Co-Hosts</button>
+                {invitation.isPremium ? (
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-sm font-bold rounded-full flex items-center gap-1">⭐ Premium</span>
+                ) : (
+                  <button onClick={() => setShowUpgradeModal(true)} className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-400 text-white rounded-md text-sm font-bold hover:opacity-90">
+                    ⭐ Upgrade — ₹419
+                  </button>
+                )}
                 <span className="px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">Your Event</span>
               </div>
             )}
@@ -643,30 +671,7 @@ const InvitationDetail = () => {
                 <button onClick={() => handleRSVP('tentative')} disabled={rsvpLoading} className={`px-4 py-2 rounded-md font-medium ${myRsvp === 'tentative' || !myRsvp ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>? Maybe</button>
                 <button onClick={() => handleRSVP('declined')} disabled={rsvpLoading} className={`px-4 py-2 rounded-md font-medium ${myRsvp === 'declined' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>✕ Can't Go</button>
               </div>
-              
               {myRsvp && <p className="mt-2 text-sm text-gray-500">Your response: <span className="font-medium">{formatRsvpStatus(myRsvp)}</span></p>}
-
-              {/* CALENDAR INJECTION: Only show if they are actually going */}
-              {myRsvp === 'accepted' && (
-                <div className="mt-4 flex flex-wrap gap-3 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-                  <p className="w-full text-sm font-semibold text-indigo-900 mb-1">Add to your calendar:</p>
-                  <a 
-                    href={generateGoogleCalendarLink(invitation)} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 shadow-sm"
-                  >
-                    📅 Google Calendar
-                  </a>
-                  <button 
-                    onClick={() => downloadICS(invitation)}
-                    className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 shadow-sm"
-                  >
-                    📥 Apple / Outlook (.ics)
-                  </button>
-                </div>
-              )}
-
               <button onClick={handleToggleSave} disabled={saveLoading} className={`mt-4 px-4 py-2 rounded-md font-medium ${isSaved ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}>
                 {isSaved ? '★ Saved' : '☆ Save the Date'}
               </button>
@@ -717,6 +722,7 @@ const InvitationDetail = () => {
             </div>
           )}
 
+          {/* Display existing Co-Hosts */}
           {invitation.delegates && invitation.delegates.length > 0 && (
             <div className="mb-6 border-t pt-6">
               <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -727,7 +733,7 @@ const InvitationDetail = () => {
               </h3>
               <div className="flex flex-wrap gap-2">
                 {invitation.delegates.map((delegate) => (
-                  <div key={delegate._id || delegate} className="px-3 py-2 bg-linear-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg flex items-center gap-2">
+                  <div key={delegate._id || delegate} className="px-3 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg flex items-center gap-2">
                     <div className="bg-purple-200 p-1.5 rounded-full">
                       <span className="text-purple-700 font-semibold text-xs">
                         {(delegate.name || 'U').charAt(0).toUpperCase()}
@@ -801,7 +807,7 @@ const InvitationDetail = () => {
                         <select
                           value={u.salutation || ''}
                           onChange={(e) => updateUserSalutation(u._id, e.target.value)}
-                          className="px-2 py-1 text-xs border border-gray-300 rounded-md bg-white shrink-0"
+                          className="px-2 py-1 text-xs border border-gray-300 rounded-md bg-white flex-shrink-0"
                         >
                           <option value="">None</option>
                           <option value="Mr.">Mr.</option>
@@ -810,7 +816,7 @@ const InvitationDetail = () => {
                           <option value="Mr. & Mrs.">Mr. & Mrs.</option>
                           <option value="With Family">With Family</option>
                         </select>
-                        <button onClick={() => removeUser(u._id)} className="text-red-500 hover:text-red-700 shrink-0">×</button>
+                        <button onClick={() => removeUser(u._id)} className="text-red-500 hover:text-red-700 flex-shrink-0">×</button>
                       </div>
                     ))}
                   </div>
@@ -865,6 +871,18 @@ const InvitationDetail = () => {
         showCoHostModal={showCoHostModal}
         setShowCoHostModal={setShowCoHostModal}
       />
+      
+           {/* Premium Upgrade Modal */}
+      {showUpgradeModal && (
+        <PremiumUpgradeModal
+          invitationId={id}
+          onClose={() => setShowUpgradeModal(false)}
+          onSuccess={(updatedInvitation) => {
+            // Actually use the updated data from the backend!
+            setInvitation(updatedInvitation);
+          }}
+        />
+      )}
     </div>
   );
 };
