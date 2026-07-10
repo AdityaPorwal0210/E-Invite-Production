@@ -1,0 +1,22 @@
+# Auto-detect text files and normalize line endings to LF in the repo.
+# Prevents whole-file "modified" diffs when the project is copied/cloned
+# between Windows and other machines.
+* text=auto eol=lf
+
+# Binary files - never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.keystore binary
+*.jks binary
