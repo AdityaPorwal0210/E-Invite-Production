@@ -540,12 +540,30 @@ const updateInvitation = async (req, res) => {
     if (videoUrl !== undefined) invitation.videoUrl = videoUrl || null;
     if (googleMapsLink !== undefined) invitation.googleMapsLink = googleMapsLink || null;
 
-    if (req.files && req.files.length > 0) {
-      console.log(`🖼️ Update Mode: Processing ${req.files.length} uploaded files...`);
-      
+    // req.files is an object keyed by field name (upload.fields):
+    // { coverImage: [file], attachments: [file, ...] }
+    const coverFiles = req.files?.coverImage || [];
+    const attachmentFiles = req.files?.attachments || [];
+
+    // 1. Cover image — replace the event's card face photo
+    if (coverFiles.length > 0) {
+      console.log(`🖼️ Update Mode: Processing new cover image...`);
+      const coverFile = coverFiles[0];
+      const uploadResult = await uploadOnCloudinary(coverFile.path);
+      if (uploadResult?.url) {
+        invitation.coverImage = uploadResult.url;
+      }
+      if (fs.existsSync(coverFile.path)) {
+        fs.unlinkSync(coverFile.path);
+      }
+    }
+
+    // 2. Additional attachments — append to the existing list
+    if (attachmentFiles.length > 0) {
+      console.log(`🖼️ Update Mode: Processing ${attachmentFiles.length} attachment(s)...`);
       const newAttachments = [];
 
-      for (const file of req.files) {
+      for (const file of attachmentFiles) {
         const uploadResult = await uploadOnCloudinary(file.path);
         if (uploadResult?.url) {
           newAttachments.push({
@@ -554,7 +572,7 @@ const updateInvitation = async (req, res) => {
             name: file.originalname
           });
         }
-        
+
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
         }
@@ -592,9 +610,11 @@ const updateInvitation = async (req, res) => {
     res.status(200).json(invitation);
   } catch (error) {
     console.error("Update Error:", error);
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    // req.files is an object keyed by field name (upload.fields) — flatten to clean up temp files
+    if (req.files) {
+      const allFiles = Object.values(req.files).flat();
+      for (const file of allFiles) {
+        if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
       }
     }
     res.status(500).json({ message: "Server error while updating invitation" });

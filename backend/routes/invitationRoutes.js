@@ -36,7 +36,7 @@ router.put("/:id/rsvp", protect, updateRSVP);
 router.put("/:id/revoke", protect, revokeInvite);
 router.put("/:id/save", protect, toggleSaveInvitation);
 router.put("/:id/read", protect, markAsRead);
-router.put("/:id", protect, upload.array("attachments", 5), updateInvitation);
+router.put("/:id", protect, upload.fields([{ name: 'coverImage', maxCount: 1 }, { name: 'attachments', maxCount: 5 }]), updateInvitation);
 router.delete("/:id", protect, deleteInvitation);
 router.put("/:id/delegates", protect, updateDelegates);
 
