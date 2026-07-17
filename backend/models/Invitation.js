@@ -72,6 +72,10 @@ const invitationSchema = new mongoose.Schema({
     },
     ticketId: String
   }],
+  reminderSent: {
+    type: Boolean,
+    default: false
+  },
   isPremium: {
     type: Boolean,
     default: false
