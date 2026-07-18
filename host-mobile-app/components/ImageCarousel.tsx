@@ -1,16 +1,16 @@
 import React, { useState, useRef } from 'react';
-import { 
-  View, 
-  ScrollView, 
-  Image, 
-  Text, 
-  StyleSheet, 
+import {
+  View,
+  ScrollView,
+  Text,
+  StyleSheet,
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
   TouchableOpacity,
   SafeAreaView
 } from 'react-native';
+import { Image } from 'expo-image'; // disk+memory cached images
 import ImageViewing from 'react-native-image-viewing';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -99,7 +99,7 @@ export default function ImageCarousel({ images }: ImageCarouselProps) {
             activeOpacity={0.9} 
             onPress={openModal}
           >
-            <Image source={{ uri: img }} style={styles.image} />
+            <Image source={{ uri: img }} style={styles.image} contentFit="cover" cachePolicy="memory-disk" transition={150} />
           </TouchableOpacity>
         ))}
       </ScrollView>

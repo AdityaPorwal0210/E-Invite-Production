@@ -2,7 +2,6 @@ import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   TouchableOpacity,
   FlatList,
@@ -12,6 +11,7 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
+import { Image } from 'expo-image'; // disk+memory cached images (faster, no flicker on revisit)
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
@@ -55,6 +55,9 @@ export default function Dashboard() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // True once we've shown data at least once — used to avoid the full-screen
+  // spinner on every screen refocus (stale-while-revalidate feel).
+  const hasLoadedRef = useRef(false);
   const [viewMode, setViewMode] = useState<'hosting' | 'attending'>('hosting');
   
   // --- SEARCH STATE ---
@@ -184,7 +187,10 @@ export default function Dashboard() {
 
   const fetchEvents = async () => {
     try {
-      setLoading(true);
+      // Only block the UI with a spinner on the very first load.
+      // Later refetches (e.g. returning to this screen) refresh silently
+      // while the existing list stays visible.
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
 
       const token = await AsyncStorage.getItem('authToken');
@@ -222,11 +228,12 @@ export default function Dashboard() {
             });
           }
           setEvents(eventsToShow);
+          hasLoadedRef.current = true;
         } else {
           setError('No internet connection and no cached data available.');
         }
         setLoading(false);
-        return; 
+        return;
       }
 
       const response = await axios.get(endpoint, {
@@ -245,6 +252,7 @@ export default function Dashboard() {
       
       await cacheData(cacheKey, fetchedEvents);
       setEvents(fetchedEvents);
+      hasLoadedRef.current = true;
 
     } catch (err: any) {
       if (err.response?.status === 401) {
@@ -258,6 +266,7 @@ export default function Dashboard() {
         const cachedEvents = await getCachedData(cacheKey);
         if (cachedEvents) {
           setEvents(cachedEvents);
+          hasLoadedRef.current = true;
         } else {
            setError('Network request failed and no cache available.');
         }
@@ -320,7 +329,7 @@ export default function Dashboard() {
         
         <View style={styles.cardImageContainer}>
           {item.coverImage ? (
-            <Image source={{ uri: item.coverImage }} style={styles.cardImage} resizeMode="cover" />
+            <Image source={{ uri: item.coverImage }} style={styles.cardImage} contentFit="cover" cachePolicy="memory-disk" transition={150} />
           ) : (
             <View style={styles.cardImagePlaceholder}>
               <Text style={styles.cardImagePlaceholderText}>📅</Text>

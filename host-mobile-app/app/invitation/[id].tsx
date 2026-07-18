@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   ScrollView,
   Alert,
@@ -11,6 +10,7 @@ import {
   StyleSheet,
   Linking,
 } from 'react-native';
+import { Image } from 'expo-image'; // disk+memory cached images
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -229,9 +229,11 @@ export default function InvitationDetailScreen() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {invitation.coverImage ? (
           <Image
-            source={{ uri: invitation.coverImage + '?t=' + new Date().getTime() }}
+            source={{ uri: invitation.coverImage }}
             style={styles.coverImage}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={150}
           />
         ) : (
           <View style={styles.coverPlaceholder}>

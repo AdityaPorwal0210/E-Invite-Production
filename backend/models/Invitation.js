@@ -90,4 +90,11 @@ const invitationSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+// Indexes matching common query patterns (host/user dashboards, group shares, RSVP lookups, reminder cron)
+invitationSchema.index({ user: 1 });
+invitationSchema.index({ host: 1 });
+invitationSchema.index({ sharedGroups: 1 });
+invitationSchema.index({ "attendees.user": 1 });
+invitationSchema.index({ eventDate: 1, reminderSent: 1 });
+
 module.exports = mongoose.model("Invitation", invitationSchema);

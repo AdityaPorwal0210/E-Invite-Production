@@ -15,6 +15,7 @@ const invitationRoutes = require('./routes/invitationRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const paymentRoutes = require('./routes/paymentRoutes'); // MOVED TO TOP
+const guestListRoutes = require('./routes/guestListRoutes');
 
 // Connect to Database
 connectDB();
@@ -74,6 +75,7 @@ app.use('/api/invitations', invitationRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes); // MOUNTED CLEANLY
+app.use('/api/guest-lists', guestListRoutes);
 
 // The Kill Switch Config
 app.get('/api/config/paywall', (req, res) => {

@@ -18,6 +18,8 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import HostGuestList from './components/HostGuestList';
 import InviteBridge from './components/InviteBridge';
+import GuestLists from './components/GuestLists';
+import GuestListDetail from './components/GuestListDetail';
 
 // 1. IMPORT THE BANNER HERE
 import SmartAppBanner from './components/SmartAppBanner'; 
@@ -102,8 +104,24 @@ function App() {
           </ProtectedRoute>
         } 
       />
-      <Route 
-        path="/groups" 
+      <Route
+        path="/guest-lists"
+        element={
+          <ProtectedRoute>
+            <GuestLists />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/guest-lists/:id"
+        element={
+          <ProtectedRoute>
+            <GuestListDetail />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/groups"
         element={
           <ProtectedRoute>
             <Groups />

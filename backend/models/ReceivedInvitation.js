@@ -20,6 +20,11 @@ const receivedInvitationSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Trails the name, e.g. "& Family" -> "Dear Mr. & Mrs. Sharma & Family"
+  suffix: {
+    type: String,
+    default: ''
+  },
   isSaved: {
     type: Boolean,
     default: false
@@ -37,5 +42,11 @@ const receivedInvitationSchema = new mongoose.Schema({
     default: false
   }
 }, { timestamps: true });
+
+// Indexes: inbox lookups by recipient, guest lists by invitation, saved filter, and dedupe per (invitation, recipient)
+receivedInvitationSchema.index({ recipient: 1, createdAt: -1 });
+receivedInvitationSchema.index({ invitation: 1 });
+receivedInvitationSchema.index({ recipient: 1, isSaved: 1 });
+receivedInvitationSchema.index({ invitation: 1, recipient: 1 });
 
 module.exports = mongoose.model("ReceivedInvitation", receivedInvitationSchema);

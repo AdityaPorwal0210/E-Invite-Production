@@ -3,6 +3,7 @@ const sendPushNotification = require('../utils/pushNotification');
 const Group = require("../models/Group");
 const User = require("../models/User");
 const ReceivedInvitation = require("../models/ReceivedInvitation");
+const GuestList = require("../models/GuestList");
 const { uploadOnCloudinary, deleteFromCloudinary } = require("../utils/cloudinary");
 const sendEmail = require("../utils/sendEmail");
 const fs = require('fs');
@@ -791,7 +792,7 @@ const revokeInvite = async (req, res) => {
 const shareInvitationLater = async (req, res) => {
   try {
     const { id } = req.params;
-    const { newGroups, newUsers, newEmails, newPhones, salutations } = req.body;
+    let { newGroups, newUsers, newEmails, newPhones, salutations, suffixes, guestListIds } = req.body;
 
     const invitation = await Invitation.findById(id);
 
@@ -804,6 +805,77 @@ const shareInvitationLater = async (req, res) => {
 
     if (!isHost && !isDelegate) {
       return res.status(403).json({ message: "Not authorized to share this invitation" });
+    }
+
+    // Accepts arrays, JSON strings, or comma-separated strings
+    const toArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return val.split(',').map(s => s.trim()).filter(Boolean);
+        }
+      }
+      return [];
+    };
+
+    const toMap = (val) => {
+      if (!val) return {};
+      if (typeof val === 'string') {
+        try { return JSON.parse(val) || {}; } catch (e) { return {}; }
+      }
+      return typeof val === 'object' ? val : {};
+    };
+
+    // Parsed up-front so guest-list expansion (and the phone loop below) can
+    // attach salutations/suffixes as recipients are resolved.
+    let salutationsMap = toMap(salutations);
+    let suffixesMap = toMap(suffixes);
+
+    // === EXPAND SELECTED GUEST LISTS INTO RECIPIENTS ===
+    // A host can pick saved lists ("Reception", "DJ Night") instead of
+    // re-entering guests. Each entry carries its own salutation/suffix.
+    const listIds = toArray(guestListIds);
+    if (listIds.length > 0) {
+      const lists = await GuestList.find({ _id: { $in: listIds }, owner: req.user.id });
+
+      const usersArr = toArray(newUsers);
+      const emailsArr = toArray(newEmails);
+      const phonesArr = toArray(newPhones);
+
+      for (const list of lists) {
+        for (const g of list.guests) {
+          if (g.user) {
+            const uid = g.user.toString();
+            usersArr.push(uid);
+            if (g.salutation) salutationsMap[uid] = g.salutation;
+            if (g.suffix) suffixesMap[uid] = g.suffix;
+          } else if (g.email) {
+            const em = g.email.toLowerCase().trim();
+            emailsArr.push(em);
+            if (g.salutation) salutationsMap[em] = g.salutation;
+            if (g.suffix) suffixesMap[em] = g.suffix;
+          } else if (g.phone) {
+            // Salutation is carried on the entry and mapped to the user id
+            // once the placeholder account is resolved in the phone loop.
+            phonesArr.push({
+              phone: g.phone,
+              name: g.name,
+              salutation: g.salutation,
+              suffix: g.suffix
+            });
+          }
+        }
+      }
+
+      newUsers = usersArr;
+      newEmails = emailsArr;
+      newPhones = phonesArr;
+
+      console.log(`📋 Expanded ${lists.length} guest list(s) into recipients`);
     }
 
     // === GUEST LIMIT ENFORCEMENT ===
@@ -888,7 +960,13 @@ const shareInvitationLater = async (req, res) => {
           } else {
              console.log("✅ Existing user found for phone:", cleanPhone);
           }
-          validUserIds.push(user._id.toString());
+
+          // Carry any salutation/suffix from a guest-list entry onto the resolved user
+          const resolvedId = user._id.toString();
+          if (p.salutation) salutationsMap[resolvedId] = p.salutation;
+          if (p.suffix) suffixesMap[resolvedId] = p.suffix;
+
+          validUserIds.push(resolvedId);
         }
       }
     }
@@ -1001,18 +1079,8 @@ const shareInvitationLater = async (req, res) => {
       }
     });
 
-    let salutationsMap = {};
-    if (salutations) {
-      if (typeof salutations === 'string') {
-        try {
-          salutationsMap = JSON.parse(salutations);
-        } catch (e) {
-          salutationsMap = {};
-        }
-      } else if (typeof salutations === 'object') {
-        salutationsMap = salutations;
-      }
-    }
+    // salutationsMap / suffixesMap were parsed at the top of this handler so
+    // guest-list expansion and the phone loop could contribute to them.
 
     if (allNewRecipientIds.size > 0) {
       const newRecipientIds = Array.from(allNewRecipientIds);
@@ -1020,14 +1088,16 @@ const shareInvitationLater = async (req, res) => {
       await Promise.all(
         newRecipientIds.map(recipientId => {
           const salutation = salutationsMap[recipientId] || '';
+          const suffix = suffixesMap[recipientId] || '';
           return ReceivedInvitation.findOneAndUpdate(
             { invitation: id, recipient: recipientId },
-            { 
-              $setOnInsert: { 
-                invitation: id, 
+            {
+              $setOnInsert: {
+                invitation: id,
                 recipient: recipientId,
                 rsvpStatus: 'tentative',
-                salutation: salutation
+                salutation: salutation,
+                suffix: suffix
               }
             },
             { upsert: true, returnDocument: 'after' }
@@ -1036,11 +1106,18 @@ const shareInvitationLater = async (req, res) => {
       );
     }
 
-    const formatGreeting = (salutation, name) => {
-      if (salutation) {
-        return `Dear ${salutation} ${name || 'Guest'}`;
+    // Builds "Dear Mr. & Mrs. Sharma & Family" from its parts
+    const formatGreeting = (salutation, name, suffix) => {
+      const addressed = [salutation, name || 'Guest', suffix]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (salutation || suffix) {
+        return `Dear ${addressed}`;
       }
-      return `Hello ${name || 'Guest'}`;
+      return `Hello ${addressed}`;
     };
 
     for (const email of registeredEmails) {
@@ -1048,7 +1125,8 @@ const shareInvitationLater = async (req, res) => {
         const user = await User.findOne({ email }).select('name');
         const userId = user?._id?.toString();
         const salutation = salutationsMap[userId] || salutationsMap[email] || '';
-        const greeting = formatGreeting(salutation, user?.name);
+        const suffix = suffixesMap[userId] || suffixesMap[email] || '';
+        const greeting = formatGreeting(salutation, user?.name, suffix);
         
         const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, false);
         
@@ -1065,7 +1143,8 @@ const shareInvitationLater = async (req, res) => {
     for (const email of unregisteredEmails) {
       try {
         const salutation = salutationsMap[email] || '';
-        const greeting = formatGreeting(salutation, '');
+        const suffix = suffixesMap[email] || '';
+        const greeting = formatGreeting(salutation, '', suffix);
         
         const emailBody = buildInvitationEmailBody(greeting, invitation, hostName, true);
         

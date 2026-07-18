@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { invalidateCache } from '../utils/useCachedGet';
 
 const CreateEventForm = () => {
   const [title, setTitle] = useState('');
@@ -70,6 +71,7 @@ const CreateEventForm = () => {
       });
 
       if (response.status === 201) {
+        invalidateCache('dashboard-invitations'); // new event should show on next dashboard visit
         navigate(`/invitation/${response.data._id}`);
       }
     } catch (err) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
+import { invalidateCache } from '../utils/useCachedGet';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
@@ -34,6 +35,9 @@ const InvitationDetail = () => {
   const [groups, setGroups] = useState([]);
   const [selectedGroups, setSelectedGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  // Saved guest lists (Reception, DJ Night, ...) the host can invite in one go
+  const [guestLists, setGuestLists] = useState([]);
+  const [selectedGuestLists, setSelectedGuestLists] = useState([]);
   const [userSearch, setUserSearch] = useState('');
   const [userResults, setUserResults] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -97,9 +101,25 @@ const InvitationDetail = () => {
   useEffect(() => {
     if (showInviteModal) {
       fetchGroups();
+      fetchGuestLists();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showInviteModal]);
+
+  const fetchGuestLists = async () => {
+    try {
+      const response = await api.get('/guest-lists');
+      setGuestLists(response.data.lists || []);
+    } catch (err) {
+      console.error('Failed to load guest lists:', err);
+    }
+  };
+
+  const handleGuestListToggle = (listId) => {
+    setSelectedGuestLists((prev) =>
+      prev.includes(listId) ? prev.filter((l) => l !== listId) : [...prev, listId]
+    );
+  };
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -351,7 +371,7 @@ const InvitationDetail = () => {
       finalUsers.push({ _id: input, name: input, [type]: input, type });
     }
     
-    if (selectedGroups.length === 0 && finalUsers.length === 0) return;
+    if (selectedGroups.length === 0 && finalUsers.length === 0 && selectedGuestLists.length === 0) return;
 
     setInviting(true);
     try {
@@ -381,7 +401,10 @@ const InvitationDetail = () => {
         newUsers: newUsers,
         newEmails: newEmails,
         newPhones: newPhones,
-        salutations: salutationsMap
+        salutations: salutationsMap,
+        // Backend expands these into recipients, carrying each guest's
+        // own salutation/suffix (e.g. "Dear Mr. & Mrs. Sharma & Family")
+        guestListIds: selectedGuestLists
       };
       
       const response = await api.post(`/invitations/${id}/share`, payload);
@@ -392,6 +415,7 @@ const InvitationDetail = () => {
       setTimeout(() => {
         setShowInviteModal(false);
         setSelectedGroups([]);
+        setSelectedGuestLists([]);
         setSelectedUsers([]);
         setUserSalutations({});
         setUserSearch('');
@@ -452,6 +476,7 @@ const InvitationDetail = () => {
     setIsDeleting(true);
     try {
       await api.delete(`/invitations/${id}`);
+      invalidateCache('dashboard-invitations'); // deleted event should disappear from dashboard
       navigate('/');
     } catch {
       alert('Failed to delete event');
@@ -791,9 +816,52 @@ const InvitationDetail = () => {
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold">Invite More People</h2>
-                <button onClick={() => { setShowInviteModal(false); setSelectedGroups([]); setSelectedUsers([]); setInviteSuccess(''); }} className="text-gray-400 hover:text-gray-600">✕</button>
+                <button onClick={() => { setShowInviteModal(false); setSelectedGroups([]); setSelectedGuestLists([]); setSelectedUsers([]); setInviteSuccess(''); }} className="text-gray-400 hover:text-gray-600">✕</button>
               </div>
               {inviteSuccess && <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-md">{inviteSuccess}</div>}
+              {/* Saved guest lists — invite a whole function's list at once */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">Add Guest Lists</label>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/guest-lists')}
+                    className="text-xs text-indigo-600 hover:text-indigo-800"
+                  >
+                    Manage lists
+                  </button>
+                </div>
+                {guestLists.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    No saved lists yet.{' '}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/guest-lists')}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      Create one
+                    </button>
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-md p-2">
+                    {guestLists.map((list) => (
+                      <label key={list._id} className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedGuestLists.includes(list._id)}
+                          onChange={() => handleGuestListToggle(list._id)}
+                          className="h-4 w-4 text-indigo-600"
+                        />
+                        <span className="text-sm">{list.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {list.guestCount} {list.guestCount === 1 ? 'guest' : 'guests'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Add Groups</label>
                 {groupsLoading ? <p className="text-sm text-gray-500">Loading...</p> : groups.length === 0 ? <p className="text-sm text-gray-500">No groups available</p> : (
@@ -850,7 +918,7 @@ const InvitationDetail = () => {
                 )}
               </div>
               <div className="flex gap-2">
-                <button onClick={handleInvite} disabled={inviting || (selectedGroups.length === 0 && selectedUsers.length === 0)} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                <button onClick={handleInvite} disabled={inviting || (selectedGroups.length === 0 && selectedUsers.length === 0 && selectedGuestLists.length === 0)} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
                   {inviting ? 'Sending...' : 'Send Invitations'}
                 </button>
                 <button onClick={() => { setShowInviteModal(false); setSelectedGroups([]); setSelectedUsers([]); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400">Cancel</button>

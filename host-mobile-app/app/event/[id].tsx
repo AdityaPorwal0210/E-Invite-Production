@@ -41,6 +41,7 @@ export default function EventDetailsHub() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [guests, setGuests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedRef = useRef(false); // avoid full-screen spinner on refocus
   const [myRsvp, setMyRsvp] = useState<string | null>(null);
   const [rsvpLoading, setRsvpLoading] = useState(false);
   
@@ -82,7 +83,8 @@ export default function EventDetailsHub() {
 
   const checkAuthAndFetch = useCallback(async () => {
     try {
-      setLoading(true);
+      // Spinner only on first load; refocus refreshes silently behind the existing content
+      if (!hasLoadedRef.current) setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
 
       if (!token) {
@@ -103,13 +105,35 @@ export default function EventDetailsHub() {
 
       const headers = { Authorization: `Bearer ${token}` };
 
-      // 🚨 FETCH PAYWALL CONFIG
+      // ⚡ STALE-WHILE-REVALIDATE: show the cached event instantly (even when online),
+      // then let the network fetch below refresh it. Makes reopening an event feel instant.
       try {
-        const configRes = await axios.get(`${API_URL}/config/paywall`);
-        setPaywallActive(configRes.data.paywallActive);
-      } catch (err) {
-        console.log("Failed to fetch paywall config");
-      }
+        const cachedEventStr = await AsyncStorage.getItem(`cache_event_${id}`);
+        if (cachedEventStr) {
+          const cachedEvent = JSON.parse(cachedEventStr);
+          setInvitation(cachedEvent);
+
+          const cOwner = cachedEvent.host?._id || cachedEvent.user;
+          const cIsHost = currentId === cOwner || (cachedEvent.delegates || []).some((d: any) =>
+            (typeof d === 'string' ? d : d._id) === currentId);
+          setIsHost(cIsHost);
+          if (cachedEvent.videoUrl) setVideoUrl(cachedEvent.videoUrl);
+          if (cachedEvent.googleMapsLink) setGoogleMapsLink(cachedEvent.googleMapsLink);
+          if (!cIsHost && cachedEvent.myRsvp) setMyRsvp(cachedEvent.myRsvp);
+          if (cachedEvent.isSaved !== undefined) setIsSaved(cachedEvent.isSaved);
+
+          const cachedGuestsStr = await AsyncStorage.getItem(`cache_guests_${id}`);
+          if (cachedGuestsStr) setGuests(JSON.parse(cachedGuestsStr));
+
+          setAuthCheckComplete(true);
+          setLoading(false); // show cached content immediately; revalidate below
+        }
+      } catch { }
+
+      // 🚨 FETCH PAYWALL CONFIG (non-blocking — not needed for initial render, so don't await it)
+      axios.get(`${API_URL}/config/paywall`)
+        .then((configRes) => setPaywallActive(configRes.data.paywallActive))
+        .catch(() => console.log("Failed to fetch paywall config"));
 
       const NetInfo = require('@react-native-community/netinfo').default;
       const networkState = await NetInfo.fetch();
@@ -150,6 +174,7 @@ export default function EventDetailsHub() {
       const eventRes = await axios.get(`${API_URL}/invitations/${id}`, { headers, timeout: 5000 });
       const eventData = eventRes.data;
       setInvitation(eventData);
+      setLoading(false); // event data is here — show it now; guest list (below) loads in background
       await AsyncStorage.setItem(`cache_event_${id}`, JSON.stringify(eventData));
 
       const ownerId = eventData.host?._id || eventData.user;
@@ -196,6 +221,7 @@ export default function EventDetailsHub() {
       }
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
   }, [id, router]);
 

@@ -1,44 +1,26 @@
-import { useState, useEffect, useContext, useCallback } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { useCachedGet } from '../utils/useCachedGet';
 
 const Inbox = () => {
-  const [invitations, setInvitations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('upcoming');
-  
+
   const { fetchNotificationCounts } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  // Wrapped in useCallback to prevent infinite render loops
-  const fetchReceivedInvitations = useCallback(async () => {
-    try {
+  // Cached fetch: instant on revisit, revalidates in background.
+  // `refetch` is exposed as fetchReceivedInvitations so post-action refreshes still work.
+  const { data: invitations = [], loading, error, refetch: fetchReceivedInvitations } = useCachedGet(
+    'inbox-received',
+    async () => {
       const response = await api.get('/invitations/received');
-      
       // Safely extract the array no matter how the backend formats it
       const fetchedEvents = response.data?.invitations || response.data?.data || response.data || [];
-      
-      setInvitations(Array.isArray(fetchedEvents) ? fetchedEvents : []);
-      setLoading(false);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to fetch invitations');
-      setLoading(false);
+      return Array.isArray(fetchedEvents) ? fetchedEvents : [];
     }
-  }, []);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        await fetchReceivedInvitations();
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    loadData();
-  }, [fetchReceivedInvitations]);
+  );
 
   const formatDateTime = (dateString) => {
     if (!dateString) return 'Date TBA';

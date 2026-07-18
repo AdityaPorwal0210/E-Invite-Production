@@ -1,56 +1,43 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios'; // ✅ IMPORTED AXIOS
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { useCachedGet } from '../utils/useCachedGet';
 import PhoneSyncBanner from './PhoneSyncBanner';
 import EventCardSkeleton from './EventCardSkeleton';
 
 const Dashboard = () => {
-  const [invitations, setInvitations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('upcoming');
-  
+
   const { logout, user, notificationCounts } = useContext(AuthContext);
   const navigate = useNavigate();
+
+  // Cached fetch: instant on revisit, revalidates in background
+  const { data: invitations = [], loading, error } = useCachedGet(
+    'dashboard-invitations',
+    async () => {
+      const response = await api.get('/invitations');
+      return response.data.invitations || [];
+    }
+  );
 
   // ✅ WEB-SAFE DELETE ACCOUNT FUNCTION
   const handleDeleteAccount = async () => {
     const isConfirmed = window.confirm("Are you absolutely sure you want to delete your account? This action cannot be undone.");
-    
+
     if (!isConfirmed) return;
 
     try {
-      const token = localStorage.getItem('authToken'); 
-      
-      await axios.delete(`https://invitoinbox.onrender.com/api/users/profile`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete('/users/profile');
 
-      localStorage.clear();
-      window.location.href = '/'; 
-      
+      logout();
+      navigate('/login');
+
     } catch (error) {
       console.error("Failed to delete account:", error);
       alert(error.response?.data?.message || "Failed to delete account. Please try again.");
     }
   };
-
-  useEffect(() => {
-    const fetchInvitations = async () => {
-      try {
-        const response = await api.get('/invitations');
-        setInvitations(response.data.invitations || []);
-        setLoading(false);
-      } catch (err) {
-        setError(err.message || 'Failed to fetch invitations');
-        setLoading(false);
-      }
-    };
-
-    fetchInvitations();
-  }, []);
 
 const formatDateTime = (dateString) => {
   if (!dateString) return 'Date TBA';
@@ -117,6 +104,12 @@ const formatDateTime = (dateString) => {
               className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm font-medium"
             >
               Saved
+            </button>
+            <button
+              onClick={() => navigate('/guest-lists')}
+              className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors text-sm font-medium"
+            >
+              Guest Lists
             </button>
             <button
               onClick={() => navigate('/groups')}

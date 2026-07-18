@@ -2,6 +2,7 @@ import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
+import { invalidateCache } from '../utils/useCachedGet';
 
 const PhoneSyncBanner = () => {
   const { user, login } = useContext(AuthContext); 
@@ -68,8 +69,10 @@ const PhoneSyncBanner = () => {
          setIsDismissed(true); // Fallback to just hiding it if login context fails
       }
 
-      // If they had events waiting, a page reload might be nice to fetch the new invites
-      setTimeout(() => window.location.reload(), 1500);
+      // Newly synced invites may have arrived — drop cached lists so they refetch fresh
+      invalidateCache('inbox-received');
+      invalidateCache('dashboard-invitations');
+      setIsDismissed(true);
 
     } catch (err) {
       console.error("Sync Verify Error:", err);

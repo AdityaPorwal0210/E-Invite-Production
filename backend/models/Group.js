@@ -62,6 +62,12 @@ const groupSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+// Indexes: "my groups" lookups by membership/admin, and invite-code joins
+groupSchema.index({ members: 1 });
+groupSchema.index({ admins: 1 });
+groupSchema.index({ owner: 1 });
+groupSchema.index({ inviteCode: 1 });
+
 // Generate unique invite code before saving
 groupSchema.pre('save', async function(next) {
   if (!this.inviteCode) {

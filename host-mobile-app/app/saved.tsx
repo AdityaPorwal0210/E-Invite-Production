@@ -1,14 +1,14 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   FlatList,
   StyleSheet,
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image'; // disk+memory cached images
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,6 +34,7 @@ export default function SavedScreen() {
   const [invitations, setInvitations] = useState<SavedInvitation[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false); // avoid full-screen spinner on refocus
 
   useFocusEffect(
     useCallback(() => {
@@ -43,7 +44,8 @@ export default function SavedScreen() {
 
   const fetchSavedInvitations = async () => {
     try {
-      setLoading(true);
+      // Only show the spinner on first load; later refocuses refresh silently
+      if (!hasLoadedRef.current) setLoading(true);
       setError(null);
       
       const token = await AsyncStorage.getItem('authToken');
@@ -62,6 +64,7 @@ export default function SavedScreen() {
         console.log("RAW SAVED DATA [FIRST ITEM]:", JSON.stringify(fetchedInvitations[0], null, 2));
       }
       setInvitations(fetchedInvitations);
+      hasLoadedRef.current = true;
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message || 'Failed to fetch saved invitations');
