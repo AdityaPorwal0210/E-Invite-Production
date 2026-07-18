@@ -1082,6 +1082,49 @@ const shareInvitationLater = async (req, res) => {
     // salutationsMap / suffixesMap were parsed at the top of this handler so
     // guest-list expansion and the phone loop could contribute to them.
 
+    // === SKIP ANYONE ALREADY INVITED TO THIS EVENT ===
+    // Selecting a saved guest list (or a group) will often include people who
+    // were invited earlier. They must not receive a second invite email/push.
+    const existingReceived = await ReceivedInvitation.find({ invitation: id }).select('recipient');
+    const alreadyInvitedIds = new Set(existingReceived.map(r => r.recipient.toString()));
+
+    let skippedAlreadyInvited = 0;
+    for (const recipientId of Array.from(allNewRecipientIds)) {
+      if (alreadyInvitedIds.has(recipientId)) {
+        allNewRecipientIds.delete(recipientId);
+        skippedAlreadyInvited++;
+      }
+    }
+
+    // Drop their email addresses too, so no duplicate mail goes out
+    if (alreadyInvitedIds.size > 0 && registeredEmails.length > 0) {
+      const alreadyInvitedUsers = await User.find({ _id: { $in: Array.from(alreadyInvitedIds) } }).select('email');
+      const alreadyInvitedEmails = new Set(
+        alreadyInvitedUsers.map(u => (u.email || '').toLowerCase()).filter(Boolean)
+      );
+      registeredEmails = registeredEmails.filter(e => !alreadyInvitedEmails.has(e.toLowerCase()));
+    }
+
+    // `invitation` was loaded before this request added anything, so its
+    // pendingGuestEmails still reflects who was already invited previously.
+    const previouslyPending = new Set(
+      (invitation.pendingGuestEmails || []).map(e => (e || '').toLowerCase())
+    );
+    if (previouslyPending.size > 0) {
+      const beforeCount = unregisteredEmails.length;
+      unregisteredEmails = unregisteredEmails.filter(e => !previouslyPending.has(e.toLowerCase()));
+      skippedAlreadyInvited += beforeCount - unregisteredEmails.length;
+    }
+
+    // ...and no duplicate push notification either
+    if (alreadyInvitedIds.size > 0 && usersWithPushTokens.length > 0) {
+      usersWithPushTokens = usersWithPushTokens.filter(u => !alreadyInvitedIds.has(u._id.toString()));
+    }
+
+    if (skippedAlreadyInvited > 0) {
+      console.log(`⏭️  Skipped ${skippedAlreadyInvited} guest(s) already invited to this event`);
+    }
+
     if (allNewRecipientIds.size > 0) {
       const newRecipientIds = Array.from(allNewRecipientIds);
       
@@ -1184,8 +1227,18 @@ const shareInvitationLater = async (req, res) => {
       .populate('sharedGroups', 'name')
       .populate('invitedUsers', 'name email');
 
+    const sentCount = allNewRecipientIds.size + unregisteredEmails.length;
+    let message = 'Invitations sent successfully';
+    if (skippedAlreadyInvited > 0) {
+      message = sentCount > 0
+        ? `Invitations sent to ${sentCount} new guest${sentCount === 1 ? '' : 's'} — skipped ${skippedAlreadyInvited} already invited`
+        : `Everyone selected was already invited — no duplicate invites sent`;
+    }
+
     res.status(200).json({
-      message: 'Invitations sent successfully',
+      message,
+      sent: sentCount,
+      skipped: skippedAlreadyInvited,
       invitation: updatedInvitation
     });
   } catch (error) {

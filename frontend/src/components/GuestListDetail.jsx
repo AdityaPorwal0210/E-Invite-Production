@@ -56,12 +56,17 @@ const GuestListDetail = () => {
 
     setSaving(true);
     try {
-      await api.post(`/guest-lists/${id}/guests`, form);
-      toast.success(`${composeDisplayName(form) || 'Guest'} added`);
+      const response = await api.post(`/guest-lists/${id}/guests`, form);
+      toast.success(response.data?.message || `${composeDisplayName(form) || 'Guest'} added`);
       setForm(emptyGuest);
       refresh();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Could not add guest');
+      // 409 = this guest is already in the list
+      if (err.response?.status === 409) {
+        toast.error(err.response.data?.message || 'This guest is already in the list');
+      } else {
+        toast.error(err.response?.data?.message || 'Could not add guest');
+      }
     } finally {
       setSaving(false);
     }
@@ -88,6 +93,7 @@ const GuestListDetail = () => {
       setEditingId(null);
       refresh();
     } catch (err) {
+      // 409 = these details would duplicate another guest in the list
       toast.error(err.response?.data?.message || 'Could not update guest');
     } finally {
       setBusy(false);

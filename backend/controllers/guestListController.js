@@ -30,6 +30,46 @@ const findLinkedUser = async ({ email, phone }) => {
   return user ? user._id : null;
 };
 
+/**
+ * Reduce a phone number to a comparable form.
+ * Compares the last 10 digits so "+91 98765 43210", "098765 43210" and
+ * "9876543210" are all recognised as the same person.
+ */
+const normalisePhone = (phone = '') => {
+  const digits = (phone || '').replace(/[^0-9]/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+/**
+ * Are these two entries the same person?
+ * Matched by linked account, email, or phone. When an entry has none of those
+ * (e.g. a name scanned off a handwritten list), fall back to comparing names.
+ */
+const isSameGuest = (a = {}, b = {}) => {
+  const aUser = a.user ? a.user.toString() : '';
+  const bUser = b.user ? b.user.toString() : '';
+  if (aUser && bUser && aUser === bUser) return true;
+
+  const aEmail = (a.email || '').toLowerCase().trim();
+  const bEmail = (b.email || '').toLowerCase().trim();
+  if (aEmail && bEmail && aEmail === bEmail) return true;
+
+  const aPhone = normalisePhone(a.phone || '');
+  const bPhone = normalisePhone(b.phone || '');
+  if (aPhone && bPhone && aPhone === bPhone) return true;
+
+  // Only compare names when neither side has any contact detail to go on
+  const aHasContact = Boolean(aUser || aEmail || aPhone);
+  const bHasContact = Boolean(bUser || bEmail || bPhone);
+  if (!aHasContact && !bHasContact) {
+    const aName = (a.name || '').toLowerCase().trim();
+    const bName = (b.name || '').toLowerCase().trim();
+    return Boolean(aName) && aName === bName;
+  }
+
+  return false;
+};
+
 // Normalise one incoming guest payload into a schema-shaped entry
 const normaliseGuest = async (raw = {}) => ({
   name: (raw.name || '').trim(),
@@ -178,10 +218,45 @@ const addGuests = async (req, res) => {
     }
 
     const entries = await Promise.all(valid.map(normaliseGuest));
-    list.guests.push(...entries);
+
+    // Skip anyone already in this list, and de-dupe within the incoming batch
+    // itself (important for bulk/scanned imports).
+    const accepted = [];
+    const skipped = [];
+
+    for (const entry of entries) {
+      const clashesWithList = list.guests.some(existing => isSameGuest(existing, entry));
+      const clashesWithBatch = accepted.some(pending => isSameGuest(pending, entry));
+
+      if (clashesWithList || clashesWithBatch) {
+        skipped.push(composeDisplayName(entry) || entry.email || entry.phone || 'Unnamed guest');
+      } else {
+        accepted.push(entry);
+      }
+    }
+
+    if (accepted.length === 0) {
+      return res.status(409).json({
+        message: skipped.length === 1
+          ? `${skipped[0]} is already in this list`
+          : `All ${skipped.length} guests are already in this list`,
+        added: 0,
+        skipped,
+        list
+      });
+    }
+
+    list.guests.push(...accepted);
     await list.save();
 
-    res.status(201).json(list);
+    res.status(201).json({
+      message: skipped.length > 0
+        ? `Added ${accepted.length}, skipped ${skipped.length} already in the list`
+        : `Added ${accepted.length} guest${accepted.length === 1 ? '' : 's'}`,
+      added: accepted.length,
+      skipped,
+      list
+    });
   } catch (error) {
     console.error('Add Guests Error:', error);
     res.status(500).json({ message: 'Server error while adding guests' });
@@ -216,6 +291,16 @@ const updateGuest = async (req, res) => {
     // Contact details may have changed — re-check for a linked account
     if (req.body.email !== undefined || req.body.phone !== undefined) {
       guest.user = await findLinkedUser({ email: guest.email, phone: guest.phone });
+    }
+
+    // The edit must not turn this entry into a duplicate of another guest
+    const clash = list.guests.find(
+      other => other._id.toString() !== guest._id.toString() && isSameGuest(other, guest)
+    );
+    if (clash) {
+      return res.status(409).json({
+        message: `${composeDisplayName(clash) || 'Another guest'} already has these details in this list`
+      });
     }
 
     await list.save();
