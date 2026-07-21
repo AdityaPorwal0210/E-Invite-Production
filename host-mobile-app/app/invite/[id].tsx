@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as Contacts from 'expo-contacts';
 import * as SMS from 'expo-sms';
+import Toast from 'react-native-toast-message';
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 
 const API_URL = 'https://invitoinbox.onrender.com/api';
@@ -31,6 +32,10 @@ export default function InviteScreen() {
   const [userResults, setUserResults] = useState<Array<{_id: string; name: string; email: string}>>([]);
   const [selectedUsers, setSelectedUsers] = useState<SelectedUser[]>([]);
   const [existingGuestIds, setExistingGuestIds] = useState<string[]>([]);
+
+  // Saved guest lists (Reception, DJ Night, ...) the host can invite in one go
+  const [guestLists, setGuestLists] = useState<Array<{ _id: string; name: string; guestCount: number }>>([]);
+  const [selectedGuestLists, setSelectedGuestLists] = useState<string[]>([]);
   
   // Contacts State
   const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
@@ -97,6 +102,7 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
       // ------------------------
 
       await fetchExistingGuests(token);
+      await fetchGuestLists(token);
       setAuthCheckComplete(true);
     } catch (err: any) {
       Alert.alert('Error', 'Failed to load event details.');
@@ -116,6 +122,23 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     } catch (err) {
       console.log('Failed to fetch existing guests');
     }
+  };
+
+  const fetchGuestLists = async (token: string) => {
+    try {
+      const response = await axios.get(`${API_URL}/guest-lists`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGuestLists(response.data.lists || []);
+    } catch (err) {
+      console.log('Failed to fetch guest lists');
+    }
+  };
+
+  const toggleGuestList = (listId: string) => {
+    setSelectedGuestLists((prev) =>
+      prev.includes(listId) ? prev.filter((l) => l !== listId) : [...prev, listId]
+    );
   };
 
   // --- DATABASE SEARCH DEBOUNCE ---
@@ -267,8 +290,8 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- THE NATIVE HANDOFF ---
   const handleSendInvites = async () => {
-    if (selectedUsers.length === 0) {
-      Alert.alert('Error', 'Please add at least one guest.');
+    if (selectedUsers.length === 0 && selectedGuestLists.length === 0) {
+      Alert.alert('Error', 'Please add at least one guest or select a guest list.');
       return;
     }
 
@@ -276,7 +299,15 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const payload: any = { newEmails: [], newPhones: [], newUsers: [], salutations: {} }; 
+      const payload: any = {
+        newEmails: [],
+        newPhones: [],
+        newUsers: [],
+        salutations: {},
+        // Backend expands these, carrying each guest's own salutation/suffix,
+        // and skips anyone already invited to this event.
+        guestListIds: selectedGuestLists,
+      };
       const phoneNumbersToText: string[] = [];
       
       selectedUsers.forEach(user => {
@@ -296,7 +327,7 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         }
       });
 
-      await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
+      const shareResponse = await axios.post(`${API_URL}/invitations/${id}/share`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -304,6 +335,16 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
       const messageBody = `You're invited to ${eventDetails?.title || 'my event'}! Click here to RSVP and see the details: ${inviteLink}`;
 
       setInviting(false);
+
+      // Tell the host if any selected guests were skipped as already invited
+      const skipped = shareResponse.data?.skipped || 0;
+      if (skipped > 0) {
+        Toast.show({
+          type: 'info',
+          text1: `Skipped ${skipped} already invited`,
+          text2: 'No duplicate invites were sent.',
+        });
+      }
 
       Alert.alert(
         'Database Updated',
@@ -372,13 +413,57 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
       <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
         
-        <TouchableOpacity 
-          style={styles.contactGrabberBtn} 
+        <TouchableOpacity
+          style={styles.contactGrabberBtn}
           onPress={loadDeviceContacts}
           disabled={contactLoading}
         >
           {contactLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.contactGrabberText}>📱 Select from Phonebook</Text>}
         </TouchableOpacity>
+
+        {/* Saved guest lists — invite a whole function's list at once */}
+        <View style={styles.section}>
+          <View style={styles.listHeaderRow}>
+            <Text style={styles.sectionTitle}>Guest Lists</Text>
+            <TouchableOpacity onPress={() => router.push('/guest-lists')}>
+              <Text style={styles.manageLink}>Manage</Text>
+            </TouchableOpacity>
+          </View>
+
+          {guestLists.length === 0 ? (
+            <TouchableOpacity onPress={() => router.push('/guest-lists')}>
+              <Text style={styles.emptyListText}>
+                No saved lists yet. Tap to create one →
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            guestLists.map((list) => {
+              const selected = selectedGuestLists.includes(list._id);
+              return (
+                <TouchableOpacity
+                  key={list._id}
+                  style={[styles.guestListRow, selected && styles.guestListRowSelected]}
+                  onPress={() => toggleGuestList(list._id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+                    {selected && <Text style={styles.checkboxTick}>✓</Text>}
+                  </View>
+                  <Text style={styles.guestListName}>{list.name}</Text>
+                  <Text style={styles.guestListCount}>
+                    {list.guestCount} {list.guestCount === 1 ? 'guest' : 'guests'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+          )}
+
+          {selectedGuestLists.length > 0 && (
+            <Text style={styles.alreadyInvitedNote}>
+              Guests already invited to this event will be skipped automatically.
+            </Text>
+          )}
+        </View>
 
         {/* Manual Search & Live Database Results */}
         <View style={styles.section}>
@@ -484,9 +569,12 @@ const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         )}
 
         <TouchableOpacity
-          style={[styles.sendButton, selectedUsers.length === 0 && styles.sendButtonDisabled]}
+          style={[
+            styles.sendButton,
+            selectedUsers.length === 0 && selectedGuestLists.length === 0 && styles.sendButtonDisabled,
+          ]}
           onPress={handleSendInvites}
-          disabled={inviting || selectedUsers.length === 0}
+          disabled={inviting || (selectedUsers.length === 0 && selectedGuestLists.length === 0)}
         >
           {inviting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.sendButtonText}>Generate Invites</Text>}
         </TouchableOpacity>
@@ -552,6 +640,37 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   section: { padding: SPACING.md },
   sectionTitle: { ...TYPOGRAPHY.header, marginBottom: SPACING.sm },
+
+  // --- Guest list picker ---
+  listHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  manageLink: { fontSize: 13, color: COLORS.primary, fontWeight: '600', marginBottom: SPACING.sm },
+  emptyListText: { ...TYPOGRAPHY.bodyMuted, fontStyle: 'italic' },
+  guestListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: 8,
+    marginBottom: 6,
+    backgroundColor: COLORS.input,
+  },
+  guestListRowSelected: { backgroundColor: COLORS.primaryLight },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SPACING.sm,
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxChecked: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  checkboxTick: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  guestListName: { ...TYPOGRAPHY.body, fontWeight: '600', flex: 1 },
+  guestListCount: { ...TYPOGRAPHY.small },
+  alreadyInvitedNote: { ...TYPOGRAPHY.small, fontStyle: 'italic', marginTop: 4 },
   
   contactGrabberBtn: { backgroundColor: '#10B981', margin: SPACING.md, padding: SPACING.md, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
   contactGrabberText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },

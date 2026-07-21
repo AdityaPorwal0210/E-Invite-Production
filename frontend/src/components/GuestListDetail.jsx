@@ -40,10 +40,42 @@ const GuestListDetail = () => {
     async () => (await api.get(`/guest-lists/${id}`)).data
   );
 
+  // The web Contact Picker API only exists on Chrome/Edge for Android (over HTTPS).
+  // Feature-detect so we only show the button where it actually works.
+  const contactsSupported = typeof navigator !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window;
+  const [pickingContacts, setPickingContacts] = useState(false);
+
   const refresh = () => {
     invalidateCache(cacheKey);
     invalidateCache('guest-lists'); // counts on the index page changed
     refetch();
+  };
+
+  const handlePickContacts = async () => {
+    try {
+      setPickingContacts(true);
+      const selected = await navigator.contacts.select(['name', 'email', 'tel'], { multiple: true });
+      if (!selected || selected.length === 0) return;
+
+      const guests = selected.map((c) => ({
+        name: Array.isArray(c.name) ? c.name[0] : c.name || '',
+        email: Array.isArray(c.email) ? c.email[0] : c.email || '',
+        phone: Array.isArray(c.tel) ? c.tel[0] : c.tel || '',
+      })).filter((g) => g.name || g.email || g.phone);
+
+      if (guests.length === 0) return;
+
+      const response = await api.post(`/guest-lists/${id}/guests`, { guests });
+      toast.success(response.data?.message || `Added ${guests.length} contacts`);
+      refresh();
+    } catch (err) {
+      // User cancelling the picker throws — ignore that quietly
+      if (err?.name !== 'AbortError' && err?.name !== 'InvalidStateError') {
+        toast.error(err.response?.data?.message || 'Could not import contacts');
+      }
+    } finally {
+      setPickingContacts(false);
+    }
   };
 
   const handleAddGuest = async (e) => {
@@ -186,7 +218,19 @@ const GuestListDetail = () => {
 
         {/* Add guest */}
         <form onSubmit={handleAddGuest} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Add a guest</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Add a guest</h2>
+            {contactsSupported && (
+              <button
+                type="button"
+                onClick={handlePickContacts}
+                disabled={pickingContacts}
+                className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-300 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition"
+              >
+                {pickingContacts ? 'Importing…' : '📇 Select from Contacts'}
+              </button>
+            )}
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-3 mb-4">
             <div>

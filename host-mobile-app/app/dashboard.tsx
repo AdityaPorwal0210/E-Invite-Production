@@ -396,8 +396,16 @@ export default function Dashboard() {
           <Ionicons name="bookmark" size={20} color="#D97706" />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.groupIconButton} 
+        <TouchableOpacity
+          style={styles.guestListIconButton}
+          onPress={() => router.push('/guest-lists')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="list" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.groupIconButton}
           onPress={() => router.push('/groups')}
           activeOpacity={0.7}
         >
@@ -575,6 +583,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  guestListIconButton: {
+    backgroundColor: '#0D9488', // teal — distinct from Groups
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
 
   warningBanner: {

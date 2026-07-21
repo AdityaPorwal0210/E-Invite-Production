@@ -14,23 +14,6 @@ const composeDisplayName = (guest = {}) =>
     .trim();
 
 /**
- * Try to link a guest entry to an existing registered user by email or phone,
- * so invites reach their in-app inbox instead of only their email.
- */
-const findLinkedUser = async ({ email, phone }) => {
-  const conditions = [];
-  if (email) conditions.push({ email: email.toLowerCase().trim() });
-  if (phone) {
-    const cleanPhone = phone.replace(/[^0-9+]/g, '');
-    conditions.push({ phoneNumber: cleanPhone }, { secondaryPhone: cleanPhone });
-  }
-  if (conditions.length === 0) return null;
-
-  const user = await User.findOne({ $or: conditions }).select('_id');
-  return user ? user._id : null;
-};
-
-/**
  * Reduce a phone number to a comparable form.
  * Compares the last 10 digits so "+91 98765 43210", "098765 43210" and
  * "9876543210" are all recognised as the same person.
@@ -38,6 +21,34 @@ const findLinkedUser = async ({ email, phone }) => {
 const normalisePhone = (phone = '') => {
   const digits = (phone || '').replace(/[^0-9]/g, '');
   return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+/**
+ * Try to link a guest entry to an existing registered user by email or phone,
+ * so invites reach their in-app inbox instead of creating a duplicate account.
+ *
+ * Phone is matched on the LAST 10 DIGITS via regex, so a contact's
+ * "+91 98765 43210" still links to a stored "9876543210". This is what keeps
+ * contact-sourced guests in sync with real accounts.
+ */
+const findLinkedUser = async ({ email, phone }) => {
+  const conditions = [];
+  if (email) conditions.push({ email: email.toLowerCase().trim() });
+
+  const last10 = normalisePhone(phone || '');
+  if (last10.length === 10) {
+    // Match any stored number that ends in these 10 digits (ignores country code/spaces)
+    const tail = new RegExp(`${last10}$`);
+    conditions.push({ phoneNumber: tail }, { secondaryPhone: tail });
+  } else if (phone) {
+    const cleanPhone = phone.replace(/[^0-9+]/g, '');
+    if (cleanPhone) conditions.push({ phoneNumber: cleanPhone }, { secondaryPhone: cleanPhone });
+  }
+
+  if (conditions.length === 0) return null;
+
+  const user = await User.findOne({ $or: conditions }).select('_id');
+  return user ? user._id : null;
 };
 
 /**

@@ -933,15 +933,17 @@ const shareInvitationLater = async (req, res) => {
       
       for (const p of phonesArray) {
         if (p.phone) {
-          const cleanPhone = p.phone.replace(/[^0-9+]/g, ''); 
-          
-          let user = await User.findOne({
-            $or: [
-              { phoneNumber: cleanPhone },
-              { secondaryPhone: cleanPhone }
-            ]
-          });
-          
+          const cleanPhone = p.phone.replace(/[^0-9+]/g, '');
+          // Match on the last 10 digits so "+91 98765 43210" finds a stored
+          // "9876543210" — prevents creating a duplicate placeholder account.
+          const digitsOnly = p.phone.replace(/[^0-9]/g, '');
+          const last10 = digitsOnly.length > 10 ? digitsOnly.slice(-10) : digitsOnly;
+          const phoneQuery = last10.length === 10
+            ? { $or: [{ phoneNumber: new RegExp(`${last10}$`) }, { secondaryPhone: new RegExp(`${last10}$`) }] }
+            : { $or: [{ phoneNumber: cleanPhone }, { secondaryPhone: cleanPhone }] };
+
+          let user = await User.findOne(phoneQuery);
+
           if (!user) {
             try {
               console.log("👤 Creating placeholder for:", cleanPhone);
@@ -949,7 +951,7 @@ const shareInvitationLater = async (req, res) => {
                 name: p.name || 'Guest',
                 phoneNumber: cleanPhone,
                 email: `guest_${cleanPhone}_${Date.now()}@placeholder.com`,
-                password: 'PlaceholderPassword123!', 
+                password: 'PlaceholderPassword123!',
                 isRegistered: false
               });
               console.log("✅ Placeholder created successfully. ID:", user._id);
