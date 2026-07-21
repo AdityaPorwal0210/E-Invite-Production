@@ -25,6 +25,37 @@ const receivedInvitationSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Host-only estimate of how many people this invite represents (family size).
+  // Not shown to the guest; summed for the event's total expected headcount.
+  expectedCount: {
+    type: Number,
+    default: 1,
+    min: 0
+  },
+  // Host-applied, event-specific labels: "VIP", "Bride's side", "Needs hotel", custom...
+  tags: [{
+    type: String,
+    trim: true
+  }],
+  // Host request for the guest's ID (e.g. for a hotel booking)
+  idRequest: {
+    requested: { type: Boolean, default: false },
+    requestedAt: { type: Date, default: null },
+    note: { type: String, default: '' } // optional host message shown to the guest
+  },
+  // Guest consented to sharing their ID with the host
+  idConsent: {
+    type: Boolean,
+    default: false
+  },
+  // Uploaded ID documents. We store the Cloudinary publicId (NOT a public URL);
+  // viewing generates a short-lived signed link on demand.
+  idDocuments: [{
+    publicId: { type: String, required: true },
+    format: { type: String, default: 'jpg' },
+    label: { type: String, default: '' }, // e.g. "Front", "Back"
+    uploadedAt: { type: Date, default: Date.now }
+  }],
   isSaved: {
     type: Boolean,
     default: false

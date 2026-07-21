@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { invalidateCache } from '../utils/useCachedGet';
+import GuestIdUpload from './GuestIdUpload';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
@@ -610,6 +611,9 @@ const InvitationDetail = () => {
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <button onClick={() => navigate(-1)} className="mb-6 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">← Back</button>
+
+        {/* Shows only if the host has requested this guest's ID */}
+        <GuestIdUpload invitationId={id} />
 
         {imageFiles.length > 0 ? (
           <div className="relative group mb-6">

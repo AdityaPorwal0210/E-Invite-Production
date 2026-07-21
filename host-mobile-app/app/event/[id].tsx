@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { io } from 'socket.io-client';
+import Toast from 'react-native-toast-message';
 
 import { COLORS, SPACING, TYPOGRAPHY, SHADOWS } from '../../constants/theme';
 import ImageCarousel from '../../components/ImageCarousel';
@@ -22,10 +23,19 @@ import { optimizeCloudinaryUrl } from '../../utils/optimizeImage';
 
 // 🚨 INJECTED NATIVE MODAL
 import PremiumUpgradeModal from '../../components/PremiumUpgradeModal';
+import GuestIdUpload from '../../components/GuestIdUpload';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 const BASE_URL = API_URL.replace('/api', '');
 const FREE_GUEST_LIMIT = 50;
+
+const PRESET_TAGS = ['VIP', "Bride's side", "Groom's side", 'Needs hotel', 'Family', 'Friends'];
+
+// Authorised header helper for the management calls
+const authHeaders = async () => {
+  const token = await AsyncStorage.getItem('authToken');
+  return { Authorization: `Bearer ${token}` };
+};
 
 interface Attachment {
   uri: string;
@@ -40,6 +50,8 @@ export default function EventDetailsHub() {
   const [invitation, setInvitation] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [guests, setGuests] = useState<any[]>([]);
+  const [eventStats, setEventStats] = useState<any>(null); // headcount totals (host)
+  const [idEnabled, setIdEnabled] = useState(false); // ID collection available (premium or paywall off)
   const [loading, setLoading] = useState(true);
   const hasLoadedRef = useRef(false); // avoid full-screen spinner on refocus
   const [myRsvp, setMyRsvp] = useState<string | null>(null);
@@ -63,6 +75,13 @@ export default function EventDetailsHub() {
   const [myGroups, setMyGroups] = useState<any[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [invitingGroup, setInvitingGroup] = useState<string | null>(null);
+
+  // --- Guest management (tags / expected / ID) ---
+  const [managingGuest, setManagingGuest] = useState<any>(null);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [customTag, setCustomTag] = useState('');
+  const [expectedDraft, setExpectedDraft] = useState('1');
+  const [savingManage, setSavingManage] = useState(false);
 
   // --- Search Guest State ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -205,9 +224,11 @@ export default function EventDetailsHub() {
         try {
           const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
           setGuests(guestRes.data.guests || []);
+          setEventStats(guestRes.data.stats || null);
+          setIdEnabled(guestRes.data.idCollectionEnabled || false);
           await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
         } catch (guestErr) {
-          setGuests([]); 
+          setGuests([]);
         }
       }
       setAuthCheckComplete(true);
@@ -237,6 +258,8 @@ export default function EventDetailsHub() {
       const headers = { Authorization: `Bearer ${token}` };
       const guestRes = await axios.get(`${API_URL}/invitations/${id}/guests`, { headers, timeout: 5000 });
       setGuests(guestRes.data.guests || []);
+      setEventStats(guestRes.data.stats || null);
+      setIdEnabled(guestRes.data.idCollectionEnabled || false);
       await AsyncStorage.setItem(`cache_guests_${id}`, JSON.stringify(guestRes.data.guests || []));
     } catch (e) {
       console.log('Background refresh failed');
@@ -605,6 +628,105 @@ export default function EventDetailsHub() {
     ]);
   };
 
+  // ---- Guest management (tags / expected / ID) ----
+  const openManage = (guest: any) => {
+    setManagingGuest(guest);
+    setTagDraft(guest.tags || []);
+    setCustomTag('');
+    setExpectedDraft(String(guest.expectedCount ?? 1));
+  };
+
+  const toggleTag = (tag: string) => {
+    setTagDraft((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  };
+
+  const addCustomTag = () => {
+    const t = customTag.trim();
+    if (t && !tagDraft.includes(t)) setTagDraft([...tagDraft, t]);
+    setCustomTag('');
+  };
+
+  const saveManage = async () => {
+    const guestId = managingGuest.recipient?._id || managingGuest._id;
+    setSavingManage(true);
+    try {
+      const headers = await authHeaders();
+      await axios.put(`${API_URL}/invitations/${id}/guests/${guestId}/tags`, { tags: tagDraft }, { headers });
+      const count = Number(expectedDraft);
+      if (Number.isFinite(count) && count !== managingGuest.expectedCount) {
+        await axios.put(`${API_URL}/invitations/${id}/guests/${guestId}/expected`, { expectedCount: count }, { headers });
+      }
+      Toast.show({ type: 'success', text1: 'Guest updated' });
+      setManagingGuest(null);
+      silentRefresh();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not save changes');
+    } finally {
+      setSavingManage(false);
+    }
+  };
+
+  const requestGuestId = async (guest: any) => {
+    const guestId = guest.recipient?._id || guest._id;
+    try {
+      const headers = await authHeaders();
+      await axios.post(`${API_URL}/invitations/${id}/guests/${guestId}/request-id`, {}, { headers });
+      Toast.show({ type: 'success', text1: 'ID requested' });
+      silentRefresh();
+    } catch (err: any) {
+      if (err.response?.data?.requiresUpgrade) {
+        Alert.alert('Premium feature', 'Collecting IDs requires upgrading this event.');
+      } else {
+        Alert.alert('Error', err.response?.data?.message || 'Could not request ID');
+      }
+    }
+  };
+
+  const requestIdNeedsHotel = async () => {
+    try {
+      const headers = await authHeaders();
+      const res = await axios.post(`${API_URL}/invitations/${id}/request-id-by-tag`, { tag: 'Needs hotel' }, { headers });
+      Toast.show({ type: 'success', text1: res.data?.message || 'IDs requested' });
+      silentRefresh();
+    } catch (err: any) {
+      if (err.response?.data?.requiresUpgrade) {
+        Alert.alert('Premium feature', 'Collecting IDs requires upgrading this event.');
+      } else {
+        Alert.alert('Error', err.response?.data?.message || 'Could not request IDs');
+      }
+    }
+  };
+
+  const viewGuestDoc = async (guestId: string, docId: string) => {
+    try {
+      const headers = await authHeaders();
+      const res = await axios.get(`${API_URL}/invitations/${id}/guests/${guestId}/id-documents/${docId}/view`, { headers });
+      if (res.data?.url) Linking.openURL(res.data.url);
+    } catch {
+      Alert.alert('Error', 'Could not open document');
+    }
+  };
+
+  const deleteGuestDoc = async (guestId: string, docId: string) => {
+    Alert.alert('Delete document', 'Remove this ID document?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            const headers = await authHeaders();
+            await axios.delete(`${API_URL}/invitations/${id}/guests/${guestId}/id-documents/${docId}`, { headers });
+            Toast.show({ type: 'success', text1: 'Deleted' });
+            silentRefresh();
+          } catch {
+            Alert.alert('Error', 'Could not delete');
+          }
+        }
+      },
+    ]);
+  };
+
+  const anyNeedsHotel = guests.some((g: any) => (g.tags || []).includes('Needs hotel'));
+
   if (loading || !authCheckComplete) {
     return (
       <View style={[styles.centered, { backgroundColor: COLORS.background }]}>
@@ -672,6 +794,9 @@ export default function EventDetailsHub() {
             <Ionicons name={isSaved ? "bookmark" : "bookmark-outline"} size={24} color={isSaved ? "#F59E0B" : "#FFFFFF"} />
           </TouchableOpacity>
         )}
+
+          {/* Shows only if the host requested this guest's ID */}
+          {!isHost && <GuestIdUpload invitationId={id as string} />}
 
           <View style={styles.detailsCard}>
             <Text style={styles.title}>{invitation.title}</Text>
@@ -745,6 +870,17 @@ export default function EventDetailsHub() {
                   <View style={[styles.analyticsCard, { backgroundColor: COLORS.danger }]}><Text style={styles.analyticsNumber}>{declined}</Text><Text style={styles.analyticsLabel}>No</Text></View>
                 </View>
 
+                {/* Expected headcount (family sizes) — host planning number */}
+                {eventStats && (
+                  <View style={styles.headcountRow}>
+                    <Text style={styles.headcountText}>
+                      Expected people: <Text style={styles.headcountStrong}>{eventStats.expectedAttending}</Text> confirmed
+                      {' · '}
+                      <Text style={styles.headcountStrong}>{eventStats.expectedTotal}</Text> if all pending come
+                    </Text>
+                  </View>
+                )}
+
                 {guests.length > 0 && (
                   <View style={styles.guestListContainer}>
                     <Text style={styles.sectionTitle}>Attendee Roster</Text>
@@ -770,26 +906,67 @@ export default function EventDetailsHub() {
                       const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
                       const guestEmail = guest.recipient?.email || guest.email || '';
                       const rsvpStatus = guest.rsvpStatus;
+                      const gId = guest.recipient?._id || guest._id;
+                      const gTags = guest.tags || [];
+                      const gDocs = guest.idDocuments || [];
+                      const gRequested = guest.idRequest?.requested;
                       return (
-                        <View key={index} style={[styles.guestRow, { justifyContent: 'space-between' }]}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                            <View style={styles.guestAvatar}><Text style={styles.guestInitial}>{guestName.charAt(0).toUpperCase()}</Text></View>
-                            <View style={styles.guestInfo}>
-                              <Text style={styles.guestName}>{guestName}</Text>
-                              <Text style={styles.guestEmail}>{guestEmail}</Text>
+                        <View key={index} style={styles.guestCard}>
+                          <View style={[styles.guestRow, { justifyContent: 'space-between' }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                              <View style={styles.guestAvatar}><Text style={styles.guestInitial}>{guestName.charAt(0).toUpperCase()}</Text></View>
+                              <View style={styles.guestInfo}>
+                                <Text style={styles.guestName}>{guestName}</Text>
+                                <Text style={styles.guestEmail}>{guestEmail || `${guest.expectedCount ?? 1} expected`}</Text>
+                              </View>
                             </View>
-                          </View>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                             <View style={[styles.guestStatus, rsvpStatus === 'accepted' && styles.guestStatusGoing, rsvpStatus === 'declined' && styles.guestStatusDeclined, (!rsvpStatus || rsvpStatus === 'tentative') && styles.guestStatusPending]}>
                               <Text style={styles.guestStatusText}>{rsvpStatus === 'accepted' ? 'Going' : rsvpStatus === 'declined' ? 'No' : 'Pending'}</Text>
                             </View>
-                            <TouchableOpacity style={styles.removeGuestButton} onPress={() => handleRemoveGuest(guest.recipient?._id)}><Text style={styles.removeGuestText}>Remove</Text></TouchableOpacity>
+                          </View>
+
+                          {gTags.length > 0 && (
+                            <View style={styles.tagChipRow}>
+                              {gTags.map((t: string) => (
+                                <View key={t} style={styles.tagChip}><Text style={styles.tagChipText}>{t}</Text></View>
+                              ))}
+                            </View>
+                          )}
+
+                          <View style={styles.guestActionsRow}>
+                            <TouchableOpacity onPress={() => openManage(guest)}><Text style={styles.manageLink}>Manage</Text></TouchableOpacity>
+
+                            {idEnabled && (
+                              gDocs.length > 0 ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <Text style={styles.idSubmitted}>🔒 ID:</Text>
+                                  {gDocs.map((d: any) => (
+                                    <View key={d._id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                      <TouchableOpacity onPress={() => viewGuestDoc(gId, d._id)}><Text style={styles.manageLink}>{d.label || 'View'}</Text></TouchableOpacity>
+                                      <TouchableOpacity onPress={() => deleteGuestDoc(gId, d._id)}><Text style={styles.removeGuestText}>✕</Text></TouchableOpacity>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : gRequested ? (
+                                <Text style={styles.idPending}>⏳ ID requested</Text>
+                              ) : (
+                                <TouchableOpacity onPress={() => requestGuestId(guest)}><Text style={styles.requestIdLink}>Request ID</Text></TouchableOpacity>
+                              )
+                            )}
+
+                            <TouchableOpacity onPress={() => handleRemoveGuest(gId)}><Text style={styles.removeGuestText}>Remove</Text></TouchableOpacity>
                           </View>
                         </View>
                       );
                     })}
                     {filteredGuests.length === 0 && (
                       <Text style={{ textAlign: 'center', color: COLORS.textMuted, marginTop: 10 }}>No guests match your search.</Text>
+                    )}
+
+                    {idEnabled && anyNeedsHotel && (
+                      <TouchableOpacity style={styles.needsHotelBtn} onPress={requestIdNeedsHotel}>
+                        <Text style={styles.needsHotelBtnText}>🪪 Request IDs from everyone tagged "Needs hotel"</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
                 )}
@@ -1068,6 +1245,65 @@ export default function EventDetailsHub() {
           setInvitation(updatedInvitation);
         }}
       />
+
+      {/* Manage guest (tags + expected) */}
+      <Modal visible={!!managingGuest} transparent animationType="slide" onRequestClose={() => setManagingGuest(null)}>
+        <View style={styles.manageOverlay}>
+          <View style={styles.manageCard}>
+            <View style={styles.gmHeader}>
+              <Text style={styles.gmTitle}>Manage {managingGuest?.recipient?.name || 'guest'}</Text>
+              <TouchableOpacity onPress={() => setManagingGuest(null)}><Ionicons name="close" size={24} color={COLORS.textMuted} /></TouchableOpacity>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.manageLabel}>Tags</Text>
+              <View style={styles.tagChipRow}>
+                {PRESET_TAGS.map((t) => {
+                  const on = tagDraft.includes(t);
+                  return (
+                    <TouchableOpacity key={t} onPress={() => toggleTag(t)} style={[styles.manageTag, on && styles.manageTagOn]}>
+                      <Text style={[styles.manageTagText, on && styles.manageTagTextOn]}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {tagDraft.filter((t) => !PRESET_TAGS.includes(t)).length > 0 && (
+                <View style={styles.tagChipRow}>
+                  {tagDraft.filter((t) => !PRESET_TAGS.includes(t)).map((t) => (
+                    <TouchableOpacity key={t} onPress={() => toggleTag(t)} style={[styles.manageTag, styles.manageTagOn]}>
+                      <Text style={styles.manageTagTextOn}>{t} ✕</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: 6 }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, backgroundColor: COLORS.input }]}
+                  value={customTag}
+                  onChangeText={setCustomTag}
+                  placeholder="Add custom tag"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+                <TouchableOpacity style={styles.addTagBtn} onPress={addCustomTag}><Text style={{ fontWeight: '700', color: COLORS.text }}>Add</Text></TouchableOpacity>
+              </View>
+
+              <Text style={styles.manageLabel}>Expected people (host only)</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: COLORS.input }]}
+                value={expectedDraft}
+                onChangeText={(t) => setExpectedDraft(t.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
+                placeholder="1"
+                placeholderTextColor={COLORS.textMuted}
+              />
+
+              <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primary, marginTop: SPACING.lg }, savingManage && { opacity: 0.6 }]} onPress={saveManage} disabled={savingManage}>
+                <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{savingManage ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -1088,6 +1324,32 @@ const styles = StyleSheet.create({
   
   analyticsRow: { flexDirection: 'row', gap: SPACING.sm },
   analyticsCard: { flex: 1, padding: SPACING.md, borderRadius: 12, alignItems: 'center' },
+  headcountRow: { marginTop: SPACING.sm, backgroundColor: COLORS.primaryLight, borderRadius: 8, padding: SPACING.sm },
+  headcountText: { fontSize: 13, color: COLORS.primary, textAlign: 'center' },
+  headcountStrong: { fontWeight: '800' },
+
+  guestCard: { backgroundColor: COLORS.card, borderRadius: 10, padding: SPACING.sm, marginBottom: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
+  tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  tagChip: { backgroundColor: '#CCFBF1', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  tagChipText: { fontSize: 11, color: '#0F766E', fontWeight: '600' },
+  guestActionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: COLORS.border },
+  manageLink: { color: COLORS.primary, fontWeight: '600', fontSize: 13 },
+  requestIdLink: { color: '#4F46E5', fontWeight: '700', fontSize: 13 },
+  idPending: { color: '#B45309', fontSize: 12 },
+  idSubmitted: { color: COLORS.success, fontSize: 12, fontWeight: '600' },
+  needsHotelBtn: { backgroundColor: COLORS.primaryLight, borderRadius: 8, padding: SPACING.sm, marginTop: SPACING.sm, alignItems: 'center' },
+  needsHotelBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 13 },
+
+  manageOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  manageCard: { backgroundColor: COLORS.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.lg, maxHeight: '85%' },
+  gmHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  gmTitle: { ...TYPOGRAPHY.header },
+  manageLabel: { ...TYPOGRAPHY.small, marginTop: SPACING.md, marginBottom: 4 },
+  manageTag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card },
+  manageTagOn: { backgroundColor: '#0D9488', borderColor: '#0D9488' },
+  manageTagText: { fontSize: 12, color: COLORS.text, fontWeight: '600' },
+  manageTagTextOn: { fontSize: 12, color: '#FFFFFF', fontWeight: '600' },
+  addTagBtn: { backgroundColor: COLORS.input, borderRadius: 8, paddingHorizontal: SPACING.md, justifyContent: 'center' },
   analyticsNumber: { fontSize: 24, fontWeight: 'bold', color: 'white' },
   analyticsLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginTop: 4 },
   

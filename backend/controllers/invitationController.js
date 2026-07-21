@@ -831,9 +831,10 @@ const shareInvitationLater = async (req, res) => {
     };
 
     // Parsed up-front so guest-list expansion (and the phone loop below) can
-    // attach salutations/suffixes as recipients are resolved.
+    // attach salutations/suffixes/expected-counts as recipients are resolved.
     let salutationsMap = toMap(salutations);
     let suffixesMap = toMap(suffixes);
+    const expectedMap = {}; // recipientId/email -> expected headcount (from guest lists)
 
     // === EXPAND SELECTED GUEST LISTS INTO RECIPIENTS ===
     // A host can pick saved lists ("Reception", "DJ Night") instead of
@@ -848,24 +849,28 @@ const shareInvitationLater = async (req, res) => {
 
       for (const list of lists) {
         for (const g of list.guests) {
+          const expected = g.expectedCount != null ? g.expectedCount : 1;
           if (g.user) {
             const uid = g.user.toString();
             usersArr.push(uid);
             if (g.salutation) salutationsMap[uid] = g.salutation;
             if (g.suffix) suffixesMap[uid] = g.suffix;
+            expectedMap[uid] = expected;
           } else if (g.email) {
             const em = g.email.toLowerCase().trim();
             emailsArr.push(em);
             if (g.salutation) salutationsMap[em] = g.salutation;
             if (g.suffix) suffixesMap[em] = g.suffix;
+            expectedMap[em] = expected;
           } else if (g.phone) {
-            // Salutation is carried on the entry and mapped to the user id
+            // Salutation/expected are carried on the entry and mapped to the user id
             // once the placeholder account is resolved in the phone loop.
             phonesArr.push({
               phone: g.phone,
               name: g.name,
               salutation: g.salutation,
-              suffix: g.suffix
+              suffix: g.suffix,
+              expectedCount: expected
             });
           }
         }
@@ -963,10 +968,11 @@ const shareInvitationLater = async (req, res) => {
              console.log("✅ Existing user found for phone:", cleanPhone);
           }
 
-          // Carry any salutation/suffix from a guest-list entry onto the resolved user
+          // Carry any salutation/suffix/expected from a guest-list entry onto the resolved user
           const resolvedId = user._id.toString();
           if (p.salutation) salutationsMap[resolvedId] = p.salutation;
           if (p.suffix) suffixesMap[resolvedId] = p.suffix;
+          if (p.expectedCount != null) expectedMap[resolvedId] = p.expectedCount;
 
           validUserIds.push(resolvedId);
         }
@@ -1134,6 +1140,7 @@ const shareInvitationLater = async (req, res) => {
         newRecipientIds.map(recipientId => {
           const salutation = salutationsMap[recipientId] || '';
           const suffix = suffixesMap[recipientId] || '';
+          const expectedCount = expectedMap[recipientId] != null ? expectedMap[recipientId] : 1;
           return ReceivedInvitation.findOneAndUpdate(
             { invitation: id, recipient: recipientId },
             {
@@ -1142,7 +1149,8 @@ const shareInvitationLater = async (req, res) => {
                 recipient: recipientId,
                 rsvpStatus: 'tentative',
                 salutation: salutation,
-                suffix: suffix
+                suffix: suffix,
+                expectedCount: expectedCount
               }
             },
             { upsert: true, returnDocument: 'after' }
@@ -1337,13 +1345,82 @@ const getEventGuestList = async (req, res) => {
       .populate('recipient', 'name email profileImage phoneNumber')
       .sort({ rsvpStatus: 1 });
 
+    // Headcount dashboard: response counts + expected-people totals (host-only)
+    const stats = {
+      invited: guests.length,
+      accepted: 0,
+      declined: 0,
+      pending: 0,
+      expectedTotal: 0,      // sum across everyone still invited (planning number)
+      expectedAttending: 0   // sum across those who accepted
+    };
+
+    for (const g of guests) {
+      const heads = g.expectedCount != null ? g.expectedCount : 1;
+      if (g.rsvpStatus === 'accepted') {
+        stats.accepted++;
+        stats.expectedAttending += heads;
+      } else if (g.rsvpStatus === 'declined') {
+        stats.declined++;
+      } else {
+        stats.pending++;
+      }
+      if (g.rsvpStatus !== 'declined') stats.expectedTotal += heads;
+    }
+
     res.status(200).json({
       count: guests.length,
+      stats,
+      isPremium: invitation.isPremium || false,
+      // ID collection is available when premium OR the global paywall is off
+      idCollectionEnabled: (process.env.PAYWALL_ACTIVE !== 'true') || invitation.isPremium || false,
       guests
     });
   } catch (error) {
     console.error("Get Guest List Error:", error);
     res.status(500).json({ message: "Error fetching guest list" });
+  }
+};
+
+// @desc   Host sets the expected headcount for one guest's invite
+// @route  PUT /api/invitations/:id/guests/:guestId/expected
+// @access Private (host/delegate)
+const updateGuestExpectedCount = async (req, res) => {
+  try {
+    const { id, guestId } = req.params;
+    const { expectedCount } = req.body;
+
+    const invitation = await Invitation.findById(id);
+    if (!invitation) {
+      return res.status(404).json({ message: "Invitation not found" });
+    }
+
+    const isPrimaryHost = invitation.user.toString() === req.user.id;
+    const isDelegate = invitation.delegates && invitation.delegates.some(d => d.toString() === req.user.id);
+    if (!isPrimaryHost && !isDelegate) {
+      return res.status(403).json({ message: "Not authorized to edit this event" });
+    }
+
+    const count = Number(expectedCount);
+    if (!Number.isFinite(count) || count < 0) {
+      return res.status(400).json({ message: "Expected count must be a non-negative number" });
+    }
+
+    // guestId is the recipient's user id (matches the removeGuest convention)
+    const updated = await ReceivedInvitation.findOneAndUpdate(
+      { invitation: id, recipient: guestId },
+      { $set: { expectedCount: count } },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: "Guest not found for this event" });
+    }
+
+    res.status(200).json({ message: "Expected count updated", expectedCount: updated.expectedCount });
+  } catch (error) {
+    console.error("Update Expected Count Error:", error);
+    res.status(500).json({ message: "Error updating expected count" });
   }
 };
 
@@ -1448,6 +1525,7 @@ module.exports = {
   toggleSaveInvitation,
   getSavedInvitations,
   getEventGuestList,
+  updateGuestExpectedCount,
   removeGuest,
   markAsRead,
   updateDelegates

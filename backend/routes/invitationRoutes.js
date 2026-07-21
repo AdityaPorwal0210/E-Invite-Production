@@ -2,9 +2,18 @@ const express = require("express");
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
-const { updateDelegates, createInvitation, getInvitations, getInvitationById, updateRSVP, getReceivedInvitations, getSavedInvitations, updateInvitation, deleteInvitation, getPublicInvitation, getTeaser, revokeInvite, shareInvitationLater, toggleSaveInvitation, getEventGuestList, removeGuest, markAsRead } = require("../controllers/invitationController");
+const { updateDelegates, createInvitation, getInvitations, getInvitationById, updateRSVP, getReceivedInvitations, getSavedInvitations, updateInvitation, deleteInvitation, getPublicInvitation, getTeaser, revokeInvite, shareInvitationLater, toggleSaveInvitation, getEventGuestList, updateGuestExpectedCount, removeGuest, markAsRead } = require("../controllers/invitationController");
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/multer.middleware");
+const {
+  setGuestTags,
+  requestGuestId,
+  requestIdByTag,
+  getMyIdRequest,
+  uploadMyId,
+  viewIdDocument,
+  deleteIdDocument,
+} = require("../controllers/guestManagementController");
 
 // --- STRICT RATE LIMITER ---
 // Prevents bots from spamming event creation and sending thousands of fake emails
@@ -26,6 +35,17 @@ router.get("/saved", protect, getSavedInvitations);
 router.get("/", protect, getInvitations);
 router.get("/:id", protect, getInvitationById);
 router.get("/:id/guests", protect, getEventGuestList);
+router.put("/:id/guests/:guestId/expected", protect, updateGuestExpectedCount);
+
+// --- Tags + ID collection (premium) ---
+router.put("/:id/guests/:guestId/tags", protect, setGuestTags);
+router.post("/:id/guests/:guestId/request-id", protect, requestGuestId);
+router.post("/:id/request-id-by-tag", protect, requestIdByTag);
+router.get("/:id/my-id-request", protect, getMyIdRequest);
+router.post("/:id/id-documents", protect, upload.array('documents', 3), uploadMyId);
+router.get("/:id/guests/:guestId/id-documents/:docId/view", protect, viewIdDocument);
+router.delete("/:id/guests/:guestId/id-documents/:docId", protect, deleteIdDocument);
+
 router.delete("/:id/guests/:guestId", protect, removeGuest);
 
 // --- INJECTED STRICT LIMITER ON CREATION & SHARING ---

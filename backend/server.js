@@ -8,6 +8,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 const startReminderCron = require('./utils/reminderCron');
+const startIdPurgeCron = require('./utils/idPurgeCron');
 
 // 1. Import Routes
 const userRoutes = require('./routes/userRoutes');
@@ -133,8 +134,9 @@ io.on('connection', (socket) => {
 // 5. Dynamic Port Assignment
 const PORT = process.env.PORT || 5005;
 
-// 🚨 THE IGNITION SWITCH: Start the background worker
+// 🚨 THE IGNITION SWITCH: Start the background workers
 startReminderCron();
+startIdPurgeCron();
 
 // Fallback Error Handler
 app.use(errorHandler);
