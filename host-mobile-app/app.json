@@ -63,7 +63,13 @@
     "plugins": [
       "expo-router",
       "@react-native-community/datetimepicker",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Invito uses the camera to scan guest QR codes for check-in at your event."
+        }
+      ]
     ],
     "extra": {
       "router": {},

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { invalidateCache } from '../utils/useCachedGet';
 import GuestIdUpload from './GuestIdUpload';
+import GuestTicket from './GuestTicket';
 import { AuthContext } from '../context/AuthContext';
 import io from 'socket.io-client';
 import ManageCoHosts from './ManageCoHosts';
@@ -614,6 +615,9 @@ const InvitationDetail = () => {
 
         {/* Shows only if the host has requested this guest's ID */}
         <GuestIdUpload invitationId={id} />
+
+        {/* Guest's QR entry pass (shown to guests, not the host) */}
+        {!isOwner && <GuestTicket invitationId={id} />}
 
         {imageFiles.length > 0 ? (
           <div className="relative group mb-6">

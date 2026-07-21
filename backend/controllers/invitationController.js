@@ -1352,7 +1352,8 @@ const getEventGuestList = async (req, res) => {
       declined: 0,
       pending: 0,
       expectedTotal: 0,      // sum across everyone still invited (planning number)
-      expectedAttending: 0   // sum across those who accepted
+      expectedAttending: 0,  // sum across those who accepted
+      arrived: 0             // checked in at the gate (QR)
     };
 
     for (const g of guests) {
@@ -1366,6 +1367,7 @@ const getEventGuestList = async (req, res) => {
         stats.pending++;
       }
       if (g.rsvpStatus !== 'declined') stats.expectedTotal += heads;
+      if (g.checkedIn) stats.arrived++;
     }
 
     res.status(200).json({

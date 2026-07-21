@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
+import CheckinScanner from './CheckinScanner';
 
 const PRESET_TAGS = ['VIP', "Bride's side", "Groom's side", 'Needs hotel', 'Family', 'Friends'];
 
@@ -25,6 +26,9 @@ const HostGuestList = () => {
   const [customTag, setCustomTag] = useState('');
   const [expectedDraft, setExpectedDraft] = useState('1');
   const [savingManage, setSavingManage] = useState(false);
+
+  // Check-in
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     fetchGuestList();
@@ -147,6 +151,41 @@ const HostGuestList = () => {
     }
   };
 
+  // ---- Check-in ----
+  const checkInGuest = async (guestId) => {
+    try {
+      const res = await api.post(`/invitations/${id}/checkin`, { guestId });
+      if (res.data.status === 'already') toast(res.data.message, { icon: '⚠️' });
+      else toast.success(res.data.message);
+      fetchGuestList();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Check-in failed');
+    }
+  };
+
+  const undoCheckInGuest = async (guestId) => {
+    try {
+      await api.post(`/invitations/${id}/checkin/undo`, { guestId });
+      toast.success('Check-in reversed');
+      fetchGuestList();
+    } catch (err) {
+      toast.error('Could not undo');
+    }
+  };
+
+  // From the webcam scanner — check in by ticket token
+  const handleScanned = async (ticketId) => {
+    try {
+      const res = await api.post(`/invitations/${id}/checkin`, { ticketId });
+      if (res.data.status === 'ok') toast.success(res.data.message);
+      else if (res.data.status === 'already') toast(res.data.message, { icon: '⚠️' });
+      else toast.error(res.data.message);
+      fetchGuestList();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Ticket not recognised');
+    }
+  };
+
   const getStatusInfo = (status) => ({
     accepted: { label: 'Going', color: 'bg-green-100 text-green-800', dot: 'bg-green-500' },
     declined: { label: "Can't Go", color: 'bg-red-100 text-red-800', dot: 'bg-red-500' },
@@ -199,14 +238,27 @@ const HostGuestList = () => {
 
         {/* Headcount dashboard */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            <StatCard label="Invited" value={stats.invited} />
-            <StatCard label="Going" value={stats.accepted} tone="green" />
-            <StatCard label="Pending" value={stats.pending} tone="gray" />
-            <StatCard label="Declined" value={stats.declined} tone="red" />
-            <StatCard label="Expected (attending)" value={stats.expectedAttending} tone="indigo" />
-            <StatCard label="Expected (total)" value={stats.expectedTotal} tone="indigo" />
-          </div>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
+              <StatCard label="Invited" value={stats.invited} />
+              <StatCard label="Going" value={stats.accepted} tone="green" />
+              <StatCard label="Pending" value={stats.pending} tone="gray" />
+              <StatCard label="Declined" value={stats.declined} tone="red" />
+              <StatCard label="Expected (attending)" value={stats.expectedAttending} tone="indigo" />
+              <StatCard label="Arrived" value={stats.arrived || 0} tone="green" />
+            </div>
+            <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-lg p-3 mb-6">
+              <span className="text-sm text-teal-900">
+                <strong>{stats.arrived || 0}</strong> of <strong>{stats.accepted}</strong> going guests have arrived
+              </span>
+              <button
+                onClick={() => setScanning(true)}
+                className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              >
+                📷 Scan QR
+              </button>
+            </div>
+          </>
         )}
 
         {/* Search + filters */}
@@ -299,6 +351,22 @@ const HostGuestList = () => {
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      {guest.checkedIn ? (
+                        <button
+                          onClick={() => undoCheckInGuest(guestId)}
+                          className="text-sm text-green-700 font-medium"
+                          title="Checked in — click to undo"
+                        >
+                          ✓ Arrived
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => checkInGuest(guestId)}
+                          className="text-sm bg-teal-600 hover:bg-teal-700 text-white px-2.5 py-1 rounded-md font-medium"
+                        >
+                          Check in
+                        </button>
+                      )}
                       <button onClick={() => openManage(guest)} className="text-sm text-indigo-600 hover:text-indigo-800 font-medium">
                         Manage
                       </button>
@@ -349,6 +417,11 @@ const HostGuestList = () => {
           Showing {filteredGuests.length} of {guests.length} guests
         </div>
       </div>
+
+      {/* Webcam QR scanner */}
+      {scanning && (
+        <CheckinScanner onDetected={handleScanned} onClose={() => setScanning(false)} />
+      )}
 
       {/* Manage guest modal */}
       {managing && (

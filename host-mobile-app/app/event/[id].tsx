@@ -24,6 +24,7 @@ import { optimizeCloudinaryUrl } from '../../utils/optimizeImage';
 // 🚨 INJECTED NATIVE MODAL
 import PremiumUpgradeModal from '../../components/PremiumUpgradeModal';
 import GuestIdUpload from '../../components/GuestIdUpload';
+import GuestTicket from '../../components/GuestTicket';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://invitoinbox.onrender.com/api';
 const BASE_URL = API_URL.replace('/api', '');
@@ -798,6 +799,9 @@ export default function EventDetailsHub() {
           {/* Shows only if the host requested this guest's ID */}
           {!isHost && <GuestIdUpload invitationId={id as string} />}
 
+          {/* Guest's QR entry pass */}
+          {!isHost && <GuestTicket invitationId={id as string} />}
+
           <View style={styles.detailsCard}>
             <Text style={styles.title}>{invitation.title}</Text>
           
@@ -880,6 +884,14 @@ export default function EventDetailsHub() {
                     </Text>
                   </View>
                 )}
+
+                {/* Day-of QR check-in */}
+                <TouchableOpacity style={styles.scanBtn} onPress={() => router.push(`/scan/${id}`)}>
+                  <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.scanBtnText}>
+                    Scan Check-in{eventStats?.arrived ? `  ·  ${eventStats.arrived} arrived` : ''}
+                  </Text>
+                </TouchableOpacity>
 
                 {guests.length > 0 && (
                   <View style={styles.guestListContainer}>
@@ -1327,6 +1339,8 @@ const styles = StyleSheet.create({
   headcountRow: { marginTop: SPACING.sm, backgroundColor: COLORS.primaryLight, borderRadius: 8, padding: SPACING.sm },
   headcountText: { fontSize: 13, color: COLORS.primary, textAlign: 'center' },
   headcountStrong: { fontWeight: '800' },
+  scanBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#0D9488', borderRadius: 10, paddingVertical: SPACING.md, marginTop: SPACING.md },
+  scanBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
 
   guestCard: { backgroundColor: COLORS.card, borderRadius: 10, padding: SPACING.sm, marginBottom: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
   tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },

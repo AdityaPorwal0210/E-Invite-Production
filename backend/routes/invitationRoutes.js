@@ -14,6 +14,7 @@ const {
   viewIdDocument,
   deleteIdDocument,
 } = require("../controllers/guestManagementController");
+const { getMyTicket, checkIn, undoCheckIn } = require("../controllers/checkinController");
 
 // --- STRICT RATE LIMITER ---
 // Prevents bots from spamming event creation and sending thousands of fake emails
@@ -42,6 +43,11 @@ router.put("/:id/guests/:guestId/tags", protect, setGuestTags);
 router.post("/:id/guests/:guestId/request-id", protect, requestGuestId);
 router.post("/:id/request-id-by-tag", protect, requestIdByTag);
 router.get("/:id/my-id-request", protect, getMyIdRequest);
+
+// --- QR check-in ---
+router.get("/:id/my-ticket", protect, getMyTicket);
+router.post("/:id/checkin", protect, checkIn);
+router.post("/:id/checkin/undo", protect, undoCheckIn);
 router.post("/:id/id-documents", protect, upload.array('documents', 3), uploadMyId);
 router.get("/:id/guests/:guestId/id-documents/:docId/view", protect, viewIdDocument);
 router.delete("/:id/guests/:guestId/id-documents/:docId", protect, deleteIdDocument);

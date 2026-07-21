@@ -64,6 +64,15 @@ const receivedInvitationSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Day-of check-in (QR scan at the gate)
+  checkedIn: {
+    type: Boolean,
+    default: false
+  },
+  checkedInAt: {
+    type: Date,
+    default: null
+  },
   notifiedAt: {
     type: Date,
     default: Date.now
@@ -79,5 +88,6 @@ receivedInvitationSchema.index({ recipient: 1, createdAt: -1 });
 receivedInvitationSchema.index({ invitation: 1 });
 receivedInvitationSchema.index({ recipient: 1, isSaved: 1 });
 receivedInvitationSchema.index({ invitation: 1, recipient: 1 });
+receivedInvitationSchema.index({ invitation: 1, ticketId: 1 }); // fast QR check-in lookup
 
 module.exports = mongoose.model("ReceivedInvitation", receivedInvitationSchema);
