@@ -29,21 +29,24 @@ export default function GuestTicket({ invitationId }: { invitationId: string }) 
 
   if (loading || !ticket) return null;
 
+  // Once checked in, collapse to a small confirmation
+  if (ticket.checkedIn) {
+    return (
+      <View style={styles.doneCard}>
+        <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+        <Text style={styles.checkedInText}>Checked in</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Your entry pass</Text>
       <Text style={styles.subtitle}>Show this QR at the gate for check-in.</Text>
 
-      {ticket.checkedIn ? (
-        <View style={styles.checkedInPill}>
-          <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
-          <Text style={styles.checkedInText}>Checked in</Text>
-        </View>
-      ) : (
-        <View style={styles.qrWrap}>
-          <Image source={{ uri: ticket.qr }} style={styles.qr} contentFit="contain" />
-        </View>
-      )}
+      <View style={styles.qrWrap}>
+        <Image source={{ uri: ticket.qr }} style={styles.qr} contentFit="contain" />
+      </View>
 
       {!!ticket.name && <Text style={styles.name}>{ticket.name}</Text>}
     </View>
@@ -65,15 +68,16 @@ const styles = StyleSheet.create({
   qrWrap: { backgroundColor: '#FFFFFF', padding: SPACING.sm, borderRadius: 12, marginTop: SPACING.md },
   qr: { width: 200, height: 200 },
   name: { ...TYPOGRAPHY.body, fontWeight: '700', marginTop: SPACING.sm },
-  checkedInPill: {
+  doneCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     backgroundColor: '#D1FAE5',
-    paddingHorizontal: SPACING.md,
+    borderRadius: 10,
     paddingVertical: SPACING.sm,
-    borderRadius: 20,
-    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
   },
   checkedInText: { color: COLORS.success, fontWeight: '700' },
 });

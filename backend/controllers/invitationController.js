@@ -506,8 +506,9 @@ const getReceivedInvitations = async (req, res) => {
         eventDate: item.invitation.eventDate,
         location: item.invitation.location,
         coverImage: item.invitation.coverImage,
-        host: item.invitation.host, 
-        rsvpStatus: item.rsvpStatus
+        host: item.invitation.host,
+        rsvpStatus: item.rsvpStatus,
+        isRead: item.isRead // so the app can flag invites the guest hasn't opened yet
       }));
 
     res.status(200).json(formattedData);

@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 const startReminderCron = require('./utils/reminderCron');
 const startIdPurgeCron = require('./utils/idPurgeCron');
+const startRsvpNudgeCron = require('./utils/rsvpNudgeCron');
 
 // 1. Import Routes
 const userRoutes = require('./routes/userRoutes');
@@ -137,6 +138,7 @@ const PORT = process.env.PORT || 5005;
 // 🚨 THE IGNITION SWITCH: Start the background workers
 startReminderCron();
 startIdPurgeCron();
+startRsvpNudgeCron();
 
 // Fallback Error Handler
 app.use(errorHandler);

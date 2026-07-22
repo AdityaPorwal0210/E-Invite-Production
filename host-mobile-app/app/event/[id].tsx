@@ -77,6 +77,10 @@ export default function EventDetailsHub() {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [invitingGroup, setInvitingGroup] = useState<string | null>(null);
 
+  // Combined invite / share menus
+  const [showInviteMenu, setShowInviteMenu] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+
   // --- Guest management (tags / expected / ID) ---
   const [managingGuest, setManagingGuest] = useState<any>(null);
   const [tagDraft, setTagDraft] = useState<string[]>([]);
@@ -86,6 +90,7 @@ export default function EventDetailsHub() {
 
   // --- Search Guest State ---
   const [searchQuery, setSearchQuery] = useState('');
+  const [rosterFilter, setRosterFilter] = useState<'All' | 'Going' | 'Pending' | 'Arrived'>('All');
 
   // --- CO-HOST / DELEGATE STATE ---
   const [showCoHostModal, setShowCoHostModal] = useState(false);
@@ -726,6 +731,17 @@ export default function EventDetailsHub() {
     ]);
   };
 
+  const remindNonResponders = async () => {
+    try {
+      const headers = await authHeaders();
+      const res = await axios.post(`${API_URL}/invitations/${id}/remind-pending`, {}, { headers });
+      Toast.show({ type: 'success', text1: res.data?.message || 'Reminders sent' });
+    } catch (err: any) {
+      if (err.response?.status === 429) Toast.show({ type: 'info', text1: err.response.data?.message || 'Reminded recently' });
+      else Alert.alert('Error', err.response?.data?.message || 'Could not send reminders');
+    }
+  };
+
   const anyNeedsHotel = guests.some((g: any) => (g.tags || []).includes('Needs hotel'));
 
   if (loading || !authCheckComplete) {
@@ -771,7 +787,12 @@ export default function EventDetailsHub() {
     const name = guest.recipient?.name || guest.name || 'Unknown Guest';
     const email = guest.recipient?.email || guest.email || '';
     const query = searchQuery.toLowerCase();
-    return name.toLowerCase().includes(query) || email.toLowerCase().includes(query);
+    const matchesSearch = name.toLowerCase().includes(query) || email.toLowerCase().includes(query);
+    if (!matchesSearch) return false;
+    if (rosterFilter === 'Going') return guest.rsvpStatus === 'accepted';
+    if (rosterFilter === 'Pending') return guest.rsvpStatus !== 'accepted' && guest.rsvpStatus !== 'declined';
+    if (rosterFilter === 'Arrived') return guest.checkedIn;
+    return true;
   });
 
   const rawImages = [invitation?.coverImage, ...(invitation?.attachments?.map((a: any) => typeof a === 'string' ? a : a.url || a.secure_url) || [])].filter(Boolean);
@@ -796,15 +817,15 @@ export default function EventDetailsHub() {
           </TouchableOpacity>
         )}
 
-          {/* Shows only if the host requested this guest's ID */}
-          {!isHost && <GuestIdUpload invitationId={id as string} />}
-
-          {/* Guest's QR entry pass */}
-          {!isHost && <GuestTicket invitationId={id as string} />}
-
           <View style={styles.detailsCard}>
             <Text style={styles.title}>{invitation.title}</Text>
-          
+
+            {/* Shows only if the host requested this guest's ID */}
+            {!isHost && <GuestIdUpload invitationId={id as string} />}
+
+            {/* Guest's QR entry pass */}
+            {!isHost && <GuestTicket invitationId={id as string} />}
+
           <View style={styles.infoRow}>
             <Text style={styles.icon}>👤</Text>
             <Text style={styles.infoText}>
@@ -885,147 +906,45 @@ export default function EventDetailsHub() {
                   </View>
                 )}
 
-                {/* Day-of QR check-in */}
-                <TouchableOpacity style={styles.scanBtn} onPress={() => router.push(`/scan/${id}`)}>
-                  <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.scanBtnText}>
-                    Scan Check-in{eventStats?.arrived ? `  ·  ${eventStats.arrived} arrived` : ''}
-                  </Text>
-                </TouchableOpacity>
-
+                {/* Attendee roster lives on its own page */}
                 {guests.length > 0 && (
-                  <View style={styles.guestListContainer}>
-                    <Text style={styles.sectionTitle}>Attendee Roster</Text>
-                    <Text style={styles.guestSummaryText}>{attending} Attending, {declined} Declined{pending > 0 ? `, ${pending} Pending` : ''}</Text>
-                    
-                    <TextInput
-                      style={[styles.input, { marginBottom: SPACING.md, backgroundColor: '#F3F4F6' }]}
-                      placeholder="🔍 Search by name or email..."
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-
-                    <TouchableOpacity
-                      style={[styles.exportCSVButton, { marginBottom: SPACING.md }]}
-                      onPress={exportGuestList}
-                    >
-                      <Text style={styles.exportCSVButtonText}>📊 Export CSV</Text>
-                    </TouchableOpacity>
-
-                    {filteredGuests.map((guest: any, index: number) => {
-                      const guestName = guest.recipient?.name || guest.name || 'Unknown Guest';
-                      const guestEmail = guest.recipient?.email || guest.email || '';
-                      const rsvpStatus = guest.rsvpStatus;
-                      const gId = guest.recipient?._id || guest._id;
-                      const gTags = guest.tags || [];
-                      const gDocs = guest.idDocuments || [];
-                      const gRequested = guest.idRequest?.requested;
-                      return (
-                        <View key={index} style={styles.guestCard}>
-                          <View style={[styles.guestRow, { justifyContent: 'space-between' }]}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                              <View style={styles.guestAvatar}><Text style={styles.guestInitial}>{guestName.charAt(0).toUpperCase()}</Text></View>
-                              <View style={styles.guestInfo}>
-                                <Text style={styles.guestName}>{guestName}</Text>
-                                <Text style={styles.guestEmail}>{guestEmail || `${guest.expectedCount ?? 1} expected`}</Text>
-                              </View>
-                            </View>
-                            <View style={[styles.guestStatus, rsvpStatus === 'accepted' && styles.guestStatusGoing, rsvpStatus === 'declined' && styles.guestStatusDeclined, (!rsvpStatus || rsvpStatus === 'tentative') && styles.guestStatusPending]}>
-                              <Text style={styles.guestStatusText}>{rsvpStatus === 'accepted' ? 'Going' : rsvpStatus === 'declined' ? 'No' : 'Pending'}</Text>
-                            </View>
-                          </View>
-
-                          {gTags.length > 0 && (
-                            <View style={styles.tagChipRow}>
-                              {gTags.map((t: string) => (
-                                <View key={t} style={styles.tagChip}><Text style={styles.tagChipText}>{t}</Text></View>
-                              ))}
-                            </View>
-                          )}
-
-                          <View style={styles.guestActionsRow}>
-                            <TouchableOpacity onPress={() => openManage(guest)}><Text style={styles.manageLink}>Manage</Text></TouchableOpacity>
-
-                            {idEnabled && (
-                              gDocs.length > 0 ? (
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <Text style={styles.idSubmitted}>🔒 ID:</Text>
-                                  {gDocs.map((d: any) => (
-                                    <View key={d._id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                      <TouchableOpacity onPress={() => viewGuestDoc(gId, d._id)}><Text style={styles.manageLink}>{d.label || 'View'}</Text></TouchableOpacity>
-                                      <TouchableOpacity onPress={() => deleteGuestDoc(gId, d._id)}><Text style={styles.removeGuestText}>✕</Text></TouchableOpacity>
-                                    </View>
-                                  ))}
-                                </View>
-                              ) : gRequested ? (
-                                <Text style={styles.idPending}>⏳ ID requested</Text>
-                              ) : (
-                                <TouchableOpacity onPress={() => requestGuestId(guest)}><Text style={styles.requestIdLink}>Request ID</Text></TouchableOpacity>
-                              )
-                            )}
-
-                            <TouchableOpacity onPress={() => handleRemoveGuest(gId)}><Text style={styles.removeGuestText}>Remove</Text></TouchableOpacity>
-                          </View>
-                        </View>
-                      );
-                    })}
-                    {filteredGuests.length === 0 && (
-                      <Text style={{ textAlign: 'center', color: COLORS.textMuted, marginTop: 10 }}>No guests match your search.</Text>
-                    )}
-
-                    {idEnabled && anyNeedsHotel && (
-                      <TouchableOpacity style={styles.needsHotelBtn} onPress={requestIdNeedsHotel}>
-                        <Text style={styles.needsHotelBtnText}>🪪 Request IDs from everyone tagged "Needs hotel"</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
+                  <TouchableOpacity style={styles.rosterNavBtn} onPress={() => router.push(`/roster/${id}`)}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="people" size={20} color="#FFFFFF" />
+                      <Text style={styles.rosterNavText}>Manage guests · {guests.length}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.85)" />
+                  </TouchableOpacity>
                 )}
 
-                <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg }}>
-                  <TouchableOpacity 
-                    style={[styles.button, { backgroundColor: COLORS.primary, flex: 1 }]} 
-                    onPress={() => router.push('/invite/' + id)}
-                  >
-                    <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>+ Individual</Text>
+                {/* Primary: one combined Invite entry point */}
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: COLORS.primary, marginTop: SPACING.lg }]}
+                  onPress={() => setShowInviteMenu(true)}
+                >
+                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>+ Invite guests</Text>
+                </TouchableOpacity>
+
+                {/* One combined Share entry point */}
+                <TouchableOpacity
+                  style={[styles.secondaryBtn, { marginTop: SPACING.sm }]}
+                  onPress={() => setShowShareMenu(true)}
+                >
+                  <Ionicons name="share-social-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.secondaryBtnText}>Share</Text>
+                </TouchableOpacity>
+
+                {/* Compact edit row */}
+                <View style={styles.editRow}>
+                  <TouchableOpacity style={styles.editChip} onPress={() => router.push(`/edit/${id}`)}>
+                    <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.editChipText}>Edit details</Text>
                   </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.button, { backgroundColor: '#8B5CF6', flex: 1 }]} 
-                    onPress={() => {
-                      setShowGroupModal(true);
-                      loadMyGroups();
-                    }}
-                  >
-                    <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>👥 Invite Group</Text>
+                  <TouchableOpacity style={styles.editChip} onPress={() => setIsEditing(!isEditing)}>
+                    <Ionicons name="image-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.editChipText}>{isEditing ? 'Close photos' : 'Edit photos'}</Text>
                   </TouchableOpacity>
                 </View>
-
-                <TouchableOpacity 
-                  style={[styles.button, { backgroundColor: '#10B981', marginTop: SPACING.sm }]} 
-                  onPress={handleShareEvent}
-                >
-                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>📤 Share Forwardable Link</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.button, { backgroundColor: '#25D366', marginTop: SPACING.sm }]} 
-                  onPress={handleWhatsAppShare}
-                >
-                  <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>💬 Share via WhatsApp</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={[styles.button, { backgroundColor: '#EEF2FF', marginTop: SPACING.sm, borderWidth: 1, borderColor: '#C7D2FE' }]} 
-                  onPress={() => Linking.openURL(generateGoogleCalendarLink(invitation))}
-                >
-                  <Text style={{ color: '#312E81', fontWeight: 'bold', fontSize: 14 }}>📅 Add to Google Calendar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primaryLight, marginTop: SPACING.sm }]} onPress={() => setIsEditing(!isEditing)}>
-                  <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>{isEditing ? 'Cancel Edit' : 'Edit Event Media'}</Text>
-                </TouchableOpacity>
 
                 {isEditing && (
                   <View style={styles.editSection}>
@@ -1118,9 +1037,6 @@ export default function EventDetailsHub() {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.editEventButton} onPress={() => router.push(`/edit/${id}`)}>
-              <Text style={styles.editEventButtonText}>Edit Event Details</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={[styles.cancelEventButton, isDeleting && styles.cancelEventButtonDisabled]} onPress={handleDeleteEvent} disabled={isDeleting}>
               {isDeleting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.cancelEventButtonText}>Cancel Event</Text>}
             </TouchableOpacity>
@@ -1258,6 +1174,50 @@ export default function EventDetailsHub() {
         }}
       />
 
+      {/* Combined Invite menu */}
+      <Modal visible={showInviteMenu} transparent animationType="fade" onRequestClose={() => setShowInviteMenu(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowInviteMenu(false)}>
+          <View style={styles.menuSheet}>
+            <Text style={styles.menuTitle}>Invite guests</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowInviteMenu(false); router.push('/invite/' + id); }}>
+              <Ionicons name="person-add-outline" size={22} color={COLORS.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>People, contacts & lists</Text>
+                <Text style={styles.menuItemSub}>Search users, phonebook, or a saved guest list</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowInviteMenu(false); setShowGroupModal(true); loadMyGroups(); }}>
+              <Ionicons name="people-outline" size={22} color={COLORS.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemTitle}>A group</Text>
+                <Text style={styles.menuItemSub}>Invite everyone in one of your groups</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Combined Share menu */}
+      <Modal visible={showShareMenu} transparent animationType="fade" onRequestClose={() => setShowShareMenu(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowShareMenu(false)}>
+          <View style={styles.menuSheet}>
+            <Text style={styles.menuTitle}>Share event</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowShareMenu(false); handleShareEvent(); }}>
+              <Ionicons name="link-outline" size={22} color={COLORS.primary} />
+              <Text style={styles.menuItemTitle}>Forwardable link</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowShareMenu(false); handleWhatsAppShare(); }}>
+              <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
+              <Text style={styles.menuItemTitle}>WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowShareMenu(false); Linking.openURL(generateGoogleCalendarLink(invitation)); }}>
+              <Ionicons name="calendar-outline" size={22} color={COLORS.primary} />
+              <Text style={styles.menuItemTitle}>Add to Google Calendar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Manage guest (tags + expected) */}
       <Modal visible={!!managingGuest} transparent animationType="slide" onRequestClose={() => setManagingGuest(null)}>
         <View style={styles.manageOverlay}>
@@ -1335,12 +1295,33 @@ const styles = StyleSheet.create({
   sectionTitle: { ...TYPOGRAPHY.header, marginBottom: SPACING.sm },
   
   analyticsRow: { flexDirection: 'row', gap: SPACING.sm },
-  analyticsCard: { flex: 1, padding: SPACING.md, borderRadius: 12, alignItems: 'center' },
+  analyticsCard: { flex: 1, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.xs, borderRadius: 10, alignItems: 'center' },
   headcountRow: { marginTop: SPACING.sm, backgroundColor: COLORS.primaryLight, borderRadius: 8, padding: SPACING.sm },
   headcountText: { fontSize: 13, color: COLORS.primary, textAlign: 'center' },
   headcountStrong: { fontWeight: '800' },
   scanBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#0D9488', borderRadius: 10, paddingVertical: SPACING.md, marginTop: SPACING.md },
   scanBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  rosterNavBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#0D9488', borderRadius: 10, paddingVertical: SPACING.md, paddingHorizontal: SPACING.md, marginTop: SPACING.md },
+  rosterNavText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  secondaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primaryLight, borderRadius: 10, paddingVertical: SPACING.md },
+  secondaryBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
+  editRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  editChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: COLORS.input, borderRadius: 8, paddingVertical: SPACING.sm },
+  editChipText: { color: COLORS.primary, fontWeight: '600', fontSize: 13 },
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  menuSheet: { backgroundColor: COLORS.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SPACING.lg },
+  menuTitle: { ...TYPOGRAPHY.header, marginBottom: SPACING.sm },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  menuItemTitle: { ...TYPOGRAPHY.body, fontWeight: '600' },
+  menuItemSub: { ...TYPOGRAPHY.small, marginTop: 2 },
+  remindBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#F59E0B', borderRadius: 10, paddingVertical: SPACING.md, marginTop: SPACING.sm },
+  rosterFilterRow: { flexDirection: 'row', gap: 6, marginBottom: SPACING.md },
+  rosterFilterChip: { paddingHorizontal: SPACING.md, paddingVertical: 6, borderRadius: 16, backgroundColor: COLORS.input },
+  rosterFilterChipOn: { backgroundColor: COLORS.primary },
+  rosterFilterText: { fontSize: 13, color: COLORS.text, fontWeight: '600' },
+  rosterFilterTextOn: { color: '#FFFFFF' },
+  arrivedBadge: { backgroundColor: '#D1FAE5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  arrivedBadgeText: { fontSize: 11, color: COLORS.success, fontWeight: '700' },
 
   guestCard: { backgroundColor: COLORS.card, borderRadius: 10, padding: SPACING.sm, marginBottom: SPACING.sm, borderWidth: 1, borderColor: COLORS.border },
   tagChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
@@ -1364,8 +1345,8 @@ const styles = StyleSheet.create({
   manageTagText: { fontSize: 12, color: COLORS.text, fontWeight: '600' },
   manageTagTextOn: { fontSize: 12, color: '#FFFFFF', fontWeight: '600' },
   addTagBtn: { backgroundColor: COLORS.input, borderRadius: 8, paddingHorizontal: SPACING.md, justifyContent: 'center' },
-  analyticsNumber: { fontSize: 24, fontWeight: 'bold', color: 'white' },
-  analyticsLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginTop: 4 },
+  analyticsNumber: { fontSize: 19, fontWeight: 'bold', color: 'white' },
+  analyticsLabel: { fontSize: 11, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginTop: 2 },
   
   button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   rsvpBtn: { flex: 1, paddingVertical: 14, borderRadius: 100, alignItems: 'center' },

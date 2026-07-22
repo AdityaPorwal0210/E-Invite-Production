@@ -73,6 +73,15 @@ const receivedInvitationSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // RSVP follow-up nudges (manual + auto)
+  lastNudgeAt: {
+    type: Date,
+    default: null
+  },
+  nudgeCount: {
+    type: Number,
+    default: 0
+  },
   notifiedAt: {
     type: Date,
     default: Date.now

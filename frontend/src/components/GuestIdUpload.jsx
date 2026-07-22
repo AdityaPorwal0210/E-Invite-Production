@@ -75,6 +75,16 @@ const GuestIdUpload = ({ invitationId }) => {
 
   const docs = state.documents || [];
 
+  // Once submitted, collapse to a small confirmation
+  if (docs.length > 0) {
+    return (
+      <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-6 flex items-center justify-center gap-2">
+        <span className="text-green-600">✓</span>
+        <span className="text-sm font-medium text-green-800">ID submitted</span>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-5 mb-6">
       <div className="flex items-start gap-2">
@@ -85,18 +95,7 @@ const GuestIdUpload = ({ invitationId }) => {
             {state.note || 'This is used for your hotel booking. Your ID is stored securely and only the host can view it.'}
           </p>
 
-          {docs.length > 0 ? (
-            <div className="mt-3">
-              <p className="text-sm text-green-700 font-medium">✓ ID submitted. Thank you!</p>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {docs.map((d) => (
-                  <span key={d._id} className="text-xs bg-white border border-amber-200 rounded-full px-3 py-1 text-gray-700">
-                    {d.label || 'Document'} · uploaded
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : (
+          {(
             <div className="mt-3">
               <label className="flex items-start gap-2 text-sm text-amber-900 mb-3">
                 <input

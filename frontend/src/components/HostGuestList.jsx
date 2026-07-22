@@ -29,6 +29,7 @@ const HostGuestList = () => {
 
   // Check-in
   const [scanning, setScanning] = useState(false);
+  const [reminding, setReminding] = useState(false);
 
   useEffect(() => {
     fetchGuestList();
@@ -117,6 +118,17 @@ const HostGuestList = () => {
     }
   };
 
+  const cancelIdRequest = async (guest) => {
+    const guestId = guest.recipient?._id;
+    try {
+      await api.post(`/invitations/${id}/guests/${guestId}/cancel-id-request`, {});
+      toast.success('ID request cancelled');
+      fetchGuestList();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not cancel');
+    }
+  };
+
   const requestIdForNeedsHotel = async () => {
     try {
       const res = await api.post(`/invitations/${id}/request-id-by-tag`, { tag: 'Needs hotel' });
@@ -148,6 +160,21 @@ const HostGuestList = () => {
       fetchGuestList();
     } catch (err) {
       toast.error('Could not delete document');
+    }
+  };
+
+  // ---- RSVP reminder ----
+  const remindNonResponders = async () => {
+    setReminding(true);
+    try {
+      const res = await api.post(`/invitations/${id}/remind-pending`);
+      toast.success(res.data.message);
+      fetchGuestList();
+    } catch (err) {
+      if (err.response?.status === 429) toast(err.response.data.message, { icon: '⏳' });
+      else toast.error(err.response?.data?.message || 'Could not send reminders');
+    } finally {
+      setReminding(false);
     }
   };
 
@@ -199,6 +226,7 @@ const HostGuestList = () => {
       if (filter === 'Maybe' && s !== 'tentative') return false;
       if (filter === "Can't Go" && s !== 'declined') return false;
       if (filter === 'Pending' && s && s !== 'Pending') return false;
+      if (filter === 'Arrived' && !guest.checkedIn) return false;
     }
     if (tagFilter && !(guest.tags || []).includes(tagFilter)) return false;
     if (searchQuery.trim()) {
@@ -247,16 +275,27 @@ const HostGuestList = () => {
               <StatCard label="Expected (attending)" value={stats.expectedAttending} tone="indigo" />
               <StatCard label="Arrived" value={stats.arrived || 0} tone="green" />
             </div>
-            <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-lg p-3 mb-6">
-              <span className="text-sm text-teal-900">
-                <strong>{stats.arrived || 0}</strong> of <strong>{stats.accepted}</strong> going guests have arrived
-              </span>
-              <button
-                onClick={() => setScanning(true)}
-                className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                📷 Scan QR
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              {stats.pending > 0 && (
+                <button
+                  onClick={remindNonResponders}
+                  disabled={reminding}
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  {reminding ? 'Sending…' : `🔔 Remind ${stats.pending} non-responders`}
+                </button>
+              )}
+              <div className="flex items-center gap-3 ml-auto">
+                <span className="text-sm text-teal-900">
+                  <strong>{stats.arrived || 0}</strong> of <strong>{stats.accepted}</strong> going arrived
+                </span>
+                <button
+                  onClick={() => setScanning(true)}
+                  className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  📷 Scan QR
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -271,7 +310,7 @@ const HostGuestList = () => {
             className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm"
           />
           <div className="flex flex-wrap gap-2">
-            {['All', 'Going', 'Maybe', "Can't Go", 'Pending'].map(s => (
+            {['All', 'Going', 'Maybe', "Can't Go", 'Pending', 'Arrived'].map(s => (
               <button
                 key={s}
                 onClick={() => setFilter(s)}
@@ -396,7 +435,15 @@ const HostGuestList = () => {
                           ))}
                         </>
                       ) : requested ? (
-                        <span className="text-xs text-amber-700">⏳ ID requested — waiting for guest to upload</span>
+                        <>
+                          <span className="text-xs text-amber-700">⏳ ID requested — waiting for guest to upload</span>
+                          <button
+                            onClick={() => cancelIdRequest(guest)}
+                            className="text-xs text-red-600 hover:text-red-800"
+                          >
+                            Cancel request
+                          </button>
+                        </>
                       ) : (
                         <button
                           onClick={() => requestId(guest)}

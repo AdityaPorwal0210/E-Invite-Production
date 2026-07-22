@@ -409,7 +409,15 @@ const googleLogin = async (req, res) => {
 const getNotificationCounts = async (req, res) => {
   try {
     const userId = req.user.id;
-    const pendingInvites = await ReceivedInvitation.countDocuments({ recipient: userId, isRead: false });
+
+    // Only count unread invites that actually show in the "Attending" list:
+    // the event must still exist (not orphaned) and not be one the user hosts.
+    const unreadReceived = await ReceivedInvitation.find({ recipient: userId, isRead: false })
+      .populate({ path: 'invitation', select: 'user' });
+    const pendingInvites = unreadReceived.filter(
+      (r) => r.invitation && String(r.invitation.user) !== String(userId)
+    ).length;
+
     const adminGroups = await Group.find({ admins: userId });
     const pendingGroupRequests = adminGroups.reduce((total, g) => total + (g.joinRequests?.length || 0), 0);
     res.status(200).json({ pendingInvites, pendingGroupRequests });

@@ -61,6 +61,16 @@ export default function GuestIdUpload({ invitationId }: { invitationId: string }
 
   const docs = state.documents || [];
 
+  // Once submitted, collapse to a small confirmation
+  if (docs.length > 0) {
+    return (
+      <View style={styles.doneCard}>
+        <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+        <Text style={styles.doneText}>ID submitted</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
@@ -71,9 +81,7 @@ export default function GuestIdUpload({ invitationId }: { invitationId: string }
         {state.note || 'Used for your hotel booking. Stored securely — only the host can view it.'}
       </Text>
 
-      {docs.length > 0 ? (
-        <Text style={styles.submitted}>✓ ID submitted. Thank you!</Text>
-      ) : (
+      {(
         <View style={{ marginTop: SPACING.sm }}>
           <View style={styles.consentRow}>
             <Switch value={consent} onValueChange={setConsent} />
@@ -117,6 +125,18 @@ const styles = StyleSheet.create({
   title: { ...TYPOGRAPHY.header, color: '#92400E', flex: 1 },
   note: { fontSize: 13, color: '#92400E', marginTop: 4 },
   submitted: { color: COLORS.success, fontWeight: '600', marginTop: SPACING.sm },
+  doneCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#D1FAE5',
+    borderRadius: 10,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  doneText: { color: COLORS.success, fontWeight: '700' },
   consentRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
   consentText: { flex: 1, fontSize: 13, color: '#92400E' },
   uploadBtn: {

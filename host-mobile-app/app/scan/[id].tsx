@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -11,7 +10,37 @@ import { COLORS, SPACING, TYPOGRAPHY } from '../../constants/theme';
 
 type ScanResult = { status: 'ok' | 'already' | 'invalid'; name?: string; message: string } | null;
 
+// expo-camera is a native module. On an older build that doesn't include it,
+// requiring it throws — so we guard the require and degrade gracefully instead
+// of crashing the whole app at route-load time.
+let ExpoCamera: any = null;
+try {
+  ExpoCamera = require('expo-camera');
+} catch (e) {
+  ExpoCamera = null;
+}
+
+// Default export: guard the camera module, then render the real scanner.
 export default function ScanScreen() {
+  const router = useRouter();
+  if (!ExpoCamera?.CameraView) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Ionicons name="camera-outline" size={56} color={COLORS.textMuted} />
+        <Text style={styles.permTitle}>Update needed</Text>
+        <Text style={styles.permText}>QR scanning needs the latest app build. Install the newest version, then try again.</Text>
+        <TouchableOpacity style={styles.permBtn} onPress={() => router.back()}>
+          <Text style={styles.permBtnText}>Go back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+  return <Scanner />;
+}
+
+function Scanner() {
+  const { CameraView, useCameraPermissions } = ExpoCamera;
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();

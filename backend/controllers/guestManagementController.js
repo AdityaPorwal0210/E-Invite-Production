@@ -102,6 +102,28 @@ const requestGuestId = async (req, res) => {
   }
 };
 
+// @route POST /api/invitations/:id/guests/:guestId/cancel-id-request
+// @desc  Host cancels a pending ID request (e.g. requested by mistake)
+const cancelGuestId = async (req, res) => {
+  try {
+    const { id, guestId } = req.params;
+    const { invitation, error } = await loadHostContext(id, req.user.id);
+    if (error) return res.status(error.status).json({ message: error.message });
+
+    const updated = await ReceivedInvitation.findOneAndUpdate(
+      { invitation: id, recipient: guestId },
+      { $set: { 'idRequest.requested': false, 'idRequest.requestedAt': null, 'idRequest.note': '' } },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ message: 'Guest not found for this event' });
+
+    res.status(200).json({ message: 'ID request cancelled', idRequest: updated.idRequest });
+  } catch (err) {
+    console.error('Cancel ID Request Error:', err);
+    res.status(500).json({ message: 'Error cancelling ID request' });
+  }
+};
+
 // @route POST /api/invitations/:id/request-id-by-tag
 // @desc  Host requests IDs from everyone carrying a given tag (e.g. "Needs hotel")
 const requestIdByTag = async (req, res) => {
@@ -268,6 +290,7 @@ const deleteIdDocument = async (req, res) => {
 module.exports = {
   setGuestTags,
   requestGuestId,
+  cancelGuestId,
   requestIdByTag,
   getMyIdRequest,
   uploadMyId,
