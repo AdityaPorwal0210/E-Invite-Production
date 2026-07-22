@@ -31,6 +31,12 @@ const HostGuestList = () => {
   const [scanning, setScanning] = useState(false);
   const [reminding, setReminding] = useState(false);
 
+  // Broadcast
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [bcastMsg, setBcastMsg] = useState('');
+  const [bcastAudience, setBcastAudience] = useState('all');
+  const [sendingBcast, setSendingBcast] = useState(false);
+
   useEffect(() => {
     fetchGuestList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,6 +184,22 @@ const HostGuestList = () => {
     }
   };
 
+  // ---- Broadcast ----
+  const sendBroadcast = async () => {
+    if (!bcastMsg.trim()) { toast.error('Type a message to send'); return; }
+    setSendingBcast(true);
+    try {
+      const res = await api.post(`/invitations/${id}/broadcast`, { message: bcastMsg.trim(), audience: bcastAudience });
+      toast.success(res.data.message);
+      setShowBroadcast(false);
+      setBcastMsg('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not send message');
+    } finally {
+      setSendingBcast(false);
+    }
+  };
+
   // ---- Check-in ----
   const checkInGuest = async (guestId) => {
     try {
@@ -276,15 +298,23 @@ const HostGuestList = () => {
               <StatCard label="Arrived" value={stats.arrived || 0} tone="green" />
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              {stats.pending > 0 && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={remindNonResponders}
-                  disabled={reminding}
-                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  onClick={() => setShowBroadcast(true)}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
                 >
-                  {reminding ? 'Sending…' : `🔔 Remind ${stats.pending} non-responders`}
+                  📣 Message guests
                 </button>
-              )}
+                {stats.pending > 0 && (
+                  <button
+                    onClick={remindNonResponders}
+                    disabled={reminding}
+                    className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  >
+                    {reminding ? 'Sending…' : `🔔 Remind ${stats.pending}`}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-3 ml-auto">
                 <span className="text-sm text-teal-900">
                   <strong>{stats.arrived || 0}</strong> of <strong>{stats.accepted}</strong> going arrived
@@ -427,6 +457,49 @@ const HostGuestList = () => {
       {/* Webcam QR scanner */}
       {scanning && (
         <CheckinScanner onDetected={handleScanned} onClose={() => setScanning(false)} />
+      )}
+
+      {/* Broadcast compose */}
+      {showBroadcast && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Message guests</h2>
+              <button onClick={() => setShowBroadcast(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-1">Send to</label>
+            <div className="flex gap-2 mb-4">
+              {[['all', 'Everyone'], ['going', 'Going'], ['pending', 'Not responded']].map(([val, lbl]) => (
+                <button
+                  key={val}
+                  onClick={() => setBcastAudience(val)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium ${bcastAudience === val ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+            <textarea
+              value={bcastMsg}
+              onChange={(e) => setBcastMsg(e.target.value)}
+              rows={4}
+              placeholder="e.g. The venue has changed to The Grand Hall. See you there!"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1 mb-4">Sent as a push notification and email.</p>
+
+            <button
+              onClick={sendBroadcast}
+              disabled={sendingBcast}
+              className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white rounded-md font-medium"
+            >
+              {sendingBcast ? 'Sending…' : 'Send message'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Manage guest modal */}

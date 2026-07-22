@@ -29,6 +29,12 @@ export default function AttendeeRosterScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('All');
 
+  // Broadcast compose
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [bcastMsg, setBcastMsg] = useState('');
+  const [bcastAudience, setBcastAudience] = useState<'all' | 'going' | 'pending'>('all');
+  const [sending, setSending] = useState(false);
+
   // Manage sheet (opened by tapping a guest)
   const [managing, setManaging] = useState<any>(null);
   const [tagDraft, setTagDraft] = useState<string[]>([]);
@@ -137,6 +143,21 @@ export default function AttendeeRosterScreen() {
         catch { Alert.alert('Error', 'Could not remove'); }
       } },
     ]);
+  };
+
+  const sendBroadcast = async () => {
+    if (!bcastMsg.trim()) { Alert.alert('Message needed', 'Type a message to send.'); return; }
+    setSending(true);
+    try {
+      const res = await api.post(`/invitations/${id}/broadcast`, { message: bcastMsg.trim(), audience: bcastAudience });
+      Toast.show({ type: 'success', text1: res.data?.message || 'Message sent' });
+      setShowBroadcast(false);
+      setBcastMsg('');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not send message');
+    } finally {
+      setSending(false);
+    }
   };
 
   const remindPending = async () => {
@@ -260,10 +281,14 @@ export default function AttendeeRosterScreen() {
           <Ionicons name="qr-code-outline" size={18} color={COLORS.primary} />
           <Text style={styles.actionText}>Scan check-in</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => setShowBroadcast(true)}>
+          <Ionicons name="megaphone-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.actionText}>Message all</Text>
+        </TouchableOpacity>
         {stats?.pending > 0 && (
           <TouchableOpacity style={styles.actionBtn} onPress={remindPending}>
             <Ionicons name="notifications-outline" size={18} color={COLORS.primary} />
-            <Text style={styles.actionText}>Remind pending</Text>
+            <Text style={styles.actionText}>Remind</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -296,6 +321,44 @@ export default function AttendeeRosterScreen() {
           </TouchableOpacity>
         ) : null}
       />
+
+      {/* Broadcast compose */}
+      <Modal visible={showBroadcast} transparent animationType="slide" onRequestClose={() => setShowBroadcast(false)}>
+        <View style={styles.sheetOverlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Message guests</Text>
+              <TouchableOpacity onPress={() => setShowBroadcast(false)}><Ionicons name="close" size={24} color={COLORS.textMuted} /></TouchableOpacity>
+            </View>
+
+            <Text style={styles.label}>Send to</Text>
+            <View style={styles.filterRow}>
+              {(['all', 'going', 'pending'] as const).map(a => (
+                <TouchableOpacity key={a} style={[styles.filterChip, bcastAudience === a && styles.filterChipOn]} onPress={() => setBcastAudience(a)}>
+                  <Text style={[styles.filterText, bcastAudience === a && styles.filterTextOn]}>
+                    {a === 'all' ? 'Everyone' : a === 'going' ? 'Going' : 'Not responded'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.label}>Message</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 90, textAlignVertical: 'top' }]}
+              value={bcastMsg}
+              onChangeText={setBcastMsg}
+              placeholder="e.g. The venue has changed to The Grand Hall. See you there!"
+              placeholderTextColor={COLORS.textMuted}
+              multiline
+            />
+            <Text style={styles.bcastHint}>Sent as a push notification and email.</Text>
+
+            <TouchableOpacity style={[styles.button, { backgroundColor: COLORS.primary, marginTop: SPACING.lg }, sending && { opacity: 0.6 }]} onPress={sendBroadcast} disabled={sending}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>{sending ? 'Sending...' : 'Send message'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Manage sheet */}
       <Modal visible={!!managing} transparent animationType="slide" onRequestClose={() => setManaging(null)}>
@@ -432,4 +495,5 @@ const styles = StyleSheet.create({
   button: { borderRadius: 8, paddingVertical: SPACING.md, alignItems: 'center' },
   removeRow: { alignItems: 'center', padding: SPACING.md, marginBottom: SPACING.md },
   removeText: { color: COLORS.danger, fontWeight: '600' },
+  bcastHint: { ...TYPOGRAPHY.small, marginTop: 6 },
 });
