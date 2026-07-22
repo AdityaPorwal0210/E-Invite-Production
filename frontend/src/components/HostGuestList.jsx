@@ -363,97 +363,56 @@ const HostGuestList = () => {
               const docs = guest.idDocuments || [];
               const requested = guest.idRequest?.requested;
 
+              const stop = (e, fn) => { e.stopPropagation(); fn(); };
               return (
-                <div key={guest._id || index} className="bg-white rounded-lg shadow-sm p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-gray-900">
-                          {[guest.salutation, name, guest.suffix].filter(Boolean).join(' ')}
-                        </span>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
-                          <span className={`w-2 h-2 rounded-full mr-1.5 ${statusInfo.dot}`}></span>
-                          {statusInfo.label}
-                        </span>
-                        <span className="text-xs text-gray-500">· {guest.expectedCount ?? 1} expected</span>
-                      </div>
-                      <div className="text-sm text-gray-600 mt-0.5">
-                        {[email, phone].filter(Boolean).join(' · ') || 'No contact'}
-                      </div>
-                      {(guest.tags || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {guest.tags.map(t => (
-                            <span key={t} className="text-xs px-2 py-0.5 bg-teal-100 text-teal-800 rounded-full">{t}</span>
-                          ))}
-                        </div>
+                <div
+                  key={guest._id || index}
+                  onClick={() => openManage(guest)}
+                  className="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900">
+                        {[guest.salutation, name, guest.suffix].filter(Boolean).join(' ')}
+                      </span>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
+                        <span className={`w-2 h-2 rounded-full mr-1.5 ${statusInfo.dot}`}></span>
+                        {statusInfo.label}
+                      </span>
+                      {guest.checkedIn && (
+                        <span className="text-xs px-2 py-0.5 bg-green-100 text-green-800 rounded-full font-medium">✓ Arrived</span>
                       )}
                     </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {guest.checkedIn ? (
-                        <button
-                          onClick={() => undoCheckInGuest(guestId)}
-                          className="text-sm text-green-700 font-medium"
-                          title="Checked in — click to undo"
-                        >
-                          ✓ Arrived
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => checkInGuest(guestId)}
-                          className="text-sm bg-teal-600 hover:bg-teal-700 text-white px-2.5 py-1 rounded-md font-medium"
-                        >
-                          Check in
-                        </button>
-                      )}
-                      <button onClick={() => openManage(guest)} className="text-sm text-indigo-600 hover:text-indigo-800 font-medium">
-                        Manage
-                      </button>
-                      <button
-                        onClick={() => handleRemoveGuest(guestId, name)}
-                        disabled={removingGuest === guestId}
-                        className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
-                      >
-                        {removingGuest === guestId ? '…' : 'Remove'}
-                      </button>
+                    <div className="text-sm text-gray-600 mt-0.5">
+                      {[email, phone].filter(Boolean).join(' · ') || 'No contact'} · {guest.expectedCount ?? 1} expected
                     </div>
-                  </div>
-
-                  {/* ID collection row (premium) */}
-                  {isPremium && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-2">
-                      {docs.length > 0 ? (
-                        <>
-                          <span className="text-xs text-green-700 font-medium">✓ ID submitted:</span>
-                          {docs.map((d) => (
-                            <span key={d._id} className="inline-flex items-center gap-1 text-xs bg-gray-100 rounded-full px-2 py-1">
-                              <button onClick={() => viewDocument(guestId, d._id)} className="text-indigo-600 hover:underline">
-                                {d.label || 'View'} 🔒
-                              </button>
-                              <button onClick={() => deleteDocument(guestId, d._id)} className="text-red-500 hover:text-red-700">✕</button>
-                            </span>
-                          ))}
-                        </>
-                      ) : requested ? (
-                        <>
-                          <span className="text-xs text-amber-700">⏳ ID requested — waiting for guest to upload</span>
-                          <button
-                            onClick={() => cancelIdRequest(guest)}
-                            className="text-xs text-red-600 hover:text-red-800"
-                          >
-                            Cancel request
+                    {(guest.tags || []).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {guest.tags.map(t => (
+                          <span key={t} className="text-xs px-2 py-0.5 bg-teal-100 text-teal-800 rounded-full">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Quick ID action (full controls in the Manage panel) */}
+                    {isPremium && (
+                      <div className="mt-1.5">
+                        {docs.length > 0 ? (
+                          <button onClick={(e) => stop(e, () => viewDocument(guestId, docs[0]._id))} className="text-xs text-green-700 font-medium hover:underline">
+                            🔒 ID submitted · view
                           </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => requestId(guest)}
-                          className="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-medium"
-                        >
-                          Request ID
-                        </button>
-                      )}
-                    </div>
-                  )}
+                        ) : requested ? (
+                          <button onClick={(e) => stop(e, () => cancelIdRequest(guest))} className="text-xs text-amber-700 hover:underline">
+                            ⏳ ID requested · cancel
+                          </button>
+                        ) : (
+                          <button onClick={(e) => stop(e, () => requestId(guest))} className="text-xs px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full font-medium hover:bg-indigo-100">
+                            Request ID
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-gray-400 flex-shrink-0">›</span>
                 </div>
               );
             })}
@@ -480,6 +439,14 @@ const HostGuestList = () => {
               </h2>
               <button onClick={() => setManaging(null)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
+
+            {/* Check-in */}
+            <button
+              onClick={() => { const gid = managing.recipient?._id; managing.checkedIn ? undoCheckInGuest(gid) : checkInGuest(gid); setManaging(null); }}
+              className={`w-full mb-4 px-4 py-2 rounded-md font-medium text-sm ${managing.checkedIn ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-green-600 text-white hover:bg-green-700'}`}
+            >
+              {managing.checkedIn ? 'Undo check-in' : 'Check in (arrived)'}
+            </button>
 
             <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
             <div className="flex flex-wrap gap-2 mb-2">
@@ -524,8 +491,33 @@ const HostGuestList = () => {
               min="0"
               value={expectedDraft}
               onChange={(e) => setExpectedDraft(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm mb-5"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm mb-4"
             />
+
+            {/* ID for hotel (premium) */}
+            {isPremium && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">ID for hotel</label>
+                {(managing.idDocuments || []).length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {managing.idDocuments.map((d) => (
+                      <span key={d._id} className="inline-flex items-center gap-1 text-xs bg-gray-100 rounded-full px-2 py-1">
+                        <button onClick={() => viewDocument(managing.recipient?._id, d._id)} className="text-indigo-600 hover:underline">🔒 {d.label || 'View'}</button>
+                        <button onClick={() => { deleteDocument(managing.recipient?._id, d._id); setManaging(null); }} className="text-red-500 hover:text-red-700">✕</button>
+                      </span>
+                    ))}
+                  </div>
+                ) : managing.idRequest?.requested ? (
+                  <button onClick={() => { cancelIdRequest(managing); setManaging(null); }} className="text-sm text-red-600 hover:text-red-800">
+                    ⏳ Requested — cancel request
+                  </button>
+                ) : (
+                  <button onClick={() => { requestId(managing); setManaging(null); }} className="text-sm px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium">
+                    Request ID
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <button
@@ -537,6 +529,13 @@ const HostGuestList = () => {
               </button>
               <button onClick={() => setManaging(null)} className="px-4 py-2 text-gray-600">Cancel</button>
             </div>
+
+            <button
+              onClick={() => { const gid = managing.recipient?._id; const nm = managing.recipient?.name; setManaging(null); handleRemoveGuest(gid, nm); }}
+              className="w-full mt-3 text-sm text-red-600 hover:text-red-800"
+            >
+              Remove from event
+            </button>
           </div>
         </div>
       )}
