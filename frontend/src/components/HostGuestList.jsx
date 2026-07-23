@@ -263,6 +263,17 @@ const HostGuestList = () => {
   // All tags in use, for the filter dropdown
   const allTags = [...new Set(guests.flatMap(g => g.tags || []))];
 
+  // Per-tag breakdown: guest count + expected headcount
+  const tagStats = {};
+  for (const g of guests) {
+    for (const t of g.tags || []) {
+      if (!tagStats[t]) tagStats[t] = { count: 0, expected: 0 };
+      tagStats[t].count += 1;
+      tagStats[t].expected += g.expectedCount ?? 1;
+    }
+  }
+  const tagEntries = Object.entries(tagStats).sort((a, b) => b[1].count - a[1].count);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -361,6 +372,23 @@ const HostGuestList = () => {
             </select>
           )}
         </div>
+
+        {/* Per-tag headcount — click a tag to filter */}
+        {tagEntries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-6">
+            <span className="text-sm text-gray-500">By tag:</span>
+            {tagEntries.map(([tag, s]) => (
+              <button
+                key={tag}
+                onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${tagFilter === tag ? 'bg-teal-600 text-white' : 'bg-teal-50 text-teal-800 hover:bg-teal-100'}`}
+              >
+                <span>{tag}</span>
+                <span className={tagFilter === tag ? 'text-teal-100' : 'text-teal-600'}>{s.count} · {s.expected} exp</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Premium ID bulk action */}
         {isPremium && allTags.includes('Needs hotel') && (

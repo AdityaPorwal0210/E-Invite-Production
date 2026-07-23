@@ -28,6 +28,7 @@ export default function AttendeeRosterScreen() {
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('All');
+  const [tagFilter, setTagFilter] = useState<string>('');
 
   // Broadcast compose
   const [showBroadcast, setShowBroadcast] = useState(false);
@@ -200,6 +201,7 @@ export default function AttendeeRosterScreen() {
     const email = (g.recipient?.email || '').toLowerCase();
     const q = search.toLowerCase();
     if (q && !name.includes(q) && !email.includes(q)) return false;
+    if (tagFilter && !(g.tags || []).includes(tagFilter)) return false;
     if (filter === 'Going') return g.rsvpStatus === 'accepted';
     if (filter === 'Pending') return g.rsvpStatus !== 'accepted' && g.rsvpStatus !== 'declined';
     if (filter === 'Arrived') return g.checkedIn;
@@ -207,6 +209,17 @@ export default function AttendeeRosterScreen() {
   });
 
   const anyNeedsHotel = guests.some((g: any) => (g.tags || []).includes('Needs hotel'));
+
+  // Per-tag breakdown: guest count + expected headcount
+  const tagStats: Record<string, { count: number; expected: number }> = {};
+  for (const g of guests) {
+    for (const t of g.tags || []) {
+      if (!tagStats[t]) tagStats[t] = { count: 0, expected: 0 };
+      tagStats[t].count += 1;
+      tagStats[t].expected += g.expectedCount ?? 1;
+    }
+  }
+  const tagEntries = Object.entries(tagStats).sort((a, b) => b[1].count - a[1].count);
 
   const renderGuest = ({ item }: { item: any }) => {
     const name = item.recipient?.name || 'Guest';
@@ -305,6 +318,26 @@ export default function AttendeeRosterScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Per-tag headcount — tap a tag to filter */}
+      {tagEntries.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagStatsRow}>
+          {tagFilter !== '' && (
+            <TouchableOpacity style={styles.tagStatChip} onPress={() => setTagFilter('')}>
+              <Text style={styles.tagStatClear}>✕ Clear</Text>
+            </TouchableOpacity>
+          )}
+          {tagEntries.map(([tag, s]) => {
+            const on = tagFilter === tag;
+            return (
+              <TouchableOpacity key={tag} style={[styles.tagStatChip, on && styles.tagStatChipOn]} onPress={() => setTagFilter(on ? '' : tag)}>
+                <Text style={[styles.tagStatName, on && styles.tagStatNameOn]}>{tag}</Text>
+                <Text style={[styles.tagStatMeta, on && styles.tagStatNameOn]}>{s.count} · {s.expected} exp</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <FlatList
         data={filtered}
@@ -454,6 +487,13 @@ const styles = StyleSheet.create({
   filterChipOn: { backgroundColor: COLORS.primary },
   filterText: { fontSize: 13, color: COLORS.text, fontWeight: '600' },
   filterTextOn: { color: '#FFFFFF' },
+  tagStatsRow: { gap: 8, paddingHorizontal: SPACING.screenPadding, paddingBottom: SPACING.sm },
+  tagStatChip: { backgroundColor: '#CCFBF1', borderRadius: 10, paddingHorizontal: SPACING.md, paddingVertical: 6, alignItems: 'center' },
+  tagStatChipOn: { backgroundColor: '#0D9488' },
+  tagStatName: { fontSize: 12, color: '#0F766E', fontWeight: '700' },
+  tagStatNameOn: { color: '#FFFFFF' },
+  tagStatMeta: { fontSize: 10, color: '#0F766E', fontWeight: '600', marginTop: 1 },
+  tagStatClear: { fontSize: 12, color: COLORS.textMuted, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: COLORS.card, borderRadius: 10, padding: SPACING.sm, marginBottom: SPACING.sm, ...SHADOWS.small },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primaryLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: COLORS.primary, fontWeight: '700' },
