@@ -19,13 +19,24 @@ const {
   verifySecondaryPhoneSync
 } = require("../controllers/userController");
 const { protect } = require("../middleware/authMiddleware");
-console.log("Check Imports:", { requestPhoneSync, verifyPhoneSync });
-router.post("/register", registerUser);
-router.post("/login", loginUser);
-router.post("/google-login", googleLogin);
-router.post("/verify-otp", verifyOTP);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+const rateLimit = require('express-rate-limit');
+
+
+// Strict limiter for credential/OTP endpoints — blunts brute-force and OTP guessing.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 15,                  // 15 attempts per IP per window
+  message: { message: "Too many attempts. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post("/register", authLimiter, registerUser);
+router.post("/login", authLimiter, loginUser);
+router.post("/google-login", authLimiter, googleLogin);
+router.post("/verify-otp", authLimiter, verifyOTP);
+router.post("/forgot-password", authLimiter, forgotPassword);
+router.post("/reset-password", authLimiter, resetPassword);
 
 // <-- NEW PROTECTED ROUTE FOR PHONE SYNC -->
 router.post("/sync-phone/request", protect, requestPhoneSync);

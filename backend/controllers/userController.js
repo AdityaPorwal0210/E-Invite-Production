@@ -127,7 +127,9 @@ const registerUser = async (req, res) => {
 // @route   POST /api/users/login
 const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // Coerce to strings so object payloads can't manipulate the query
+    const email = String(req.body.email || '').toLowerCase().trim();
+    const password = String(req.body.password || '');
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -233,18 +235,24 @@ const verifyOTP = async (req, res) => {
 const searchUsers = async (req, res) => {
   try {
     const { query } = req.query;
-    if (!query) return res.status(400).json({ message: "Search query is required" });
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ message: "Search query is required" });
+    }
+
+    // Escape regex metacharacters to prevent regex injection / ReDoS
+    const safe = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const users = await User.find({
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } },
-        { phoneNumber: { $regex: query, $options: 'i' } },
-        { secondaryPhone: { $regex: query, $options: 'i' } }
+        { name: { $regex: safe, $options: 'i' } },
+        { email: { $regex: safe, $options: 'i' } },
+        { phoneNumber: { $regex: safe, $options: 'i' } },
+        { secondaryPhone: { $regex: safe, $options: 'i' } }
       ],
       _id: { $ne: req.user.id }
     })
-    .select('-password')
+    // Whitelist safe fields only — never leak otp / reset tokens / push tokens
+    .select('name email profileImage phoneNumber secondaryPhone')
     .limit(10);
 
     res.status(200).json(users);
@@ -307,7 +315,7 @@ const updateUserProfile = async (req, res) => {
 // @desc    Forgot Password
 const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = String(req.body.email || '').toLowerCase().trim();
     const user = await User.findOne({ email });
     if (!user) return res.status(200).json({ message: "If an account exists, an OTP has been sent" });
 
@@ -326,9 +334,14 @@ const forgotPassword = async (req, res) => {
 // @desc    Reset Password
 const resetPassword = async (req, res) => {
   try {
-    const { email, otp, newPassword } = req.body;
+    const email = String(req.body.email || '').toLowerCase().trim();
+    const otp = String(req.body.otp || '');
+    const newPassword = String(req.body.newPassword || '');
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    }
     const user = await User.findOne({ email });
-    if (!user || user.resetPasswordOtp !== otp || user.resetPasswordOtpExpire < new Date()) {
+    if (!user || !user.resetPasswordOtp || user.resetPasswordOtp !== otp || user.resetPasswordOtpExpire < new Date()) {
       return res.status(400).json({ message: "Invalid or expired OTP" });
     }
     const salt = await bcrypt.genSalt(10);
