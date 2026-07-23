@@ -1,6 +1,6 @@
 # InvitoInbox (E_invite_production)
 
-Digital event invitation platform ("Invito Inbox"). Hosts create event invites (cover image, attachments, video, maps link), share them to individuals or groups, track RSVPs and guest lists, with premium upgrades via Razorpay.
+Digital event invitation platform ("Invito Inbox"). Hosts create event invites, share them to individuals/groups/saved guest lists, track RSVPs, manage a full attendee roster (tags, expected headcount, ID collection, QR check-in, reminders, broadcasts), with premium upgrades via Razorpay.
 
 ## Monorepo layout
 
@@ -12,50 +12,71 @@ Digital event invitation platform ("Invito Inbox"). Hosts create event invites (
 
 ## Backend architecture
 
-- Entry: `backend/server.js` — helmet, global rate limit (300 req/15min on `/api`), CORS (localhost:5173 + Vercel domain), Socket.io attached via `app.set('io', io)`, hourly cron for 24-hour event reminders (`utils/reminderCron.js`).
-- Routes mounted at `/api/users`, `/api/invitations`, `/api/groups`, `/api/upload`, `/api/payments`. Paywall kill switch: `GET /api/config/paywall` (driven by `PAYWALL_ACTIVE` env, free guest limit 50).
-- Models: `User` (email+password with OTP verification, Google login, primary/secondary phone with OTP sync, expoPushToken), `Invitation` (host, delegates/co-hosts, attendees with RSVP + ticketId, isPremium + Razorpay orderId/paymentId), `Group` (members, admins, join requests, join links, permissions), `ReceivedInvitation` (per-recipient inbox record: read/saved/RSVP state).
-- Services: Cloudinary (image/attachment uploads via multer), Brevo API (transactional email, OTPs), Expo push notifications, Razorpay (₹419 premium upgrade per event, HMAC signature verification in `paymentController.js`).
-- Auth: JWT Bearer tokens, `protect` middleware; Google sign-in via google-auth-library.
+- Entry: `backend/server.js` — helmet, global rate limit (300 req/15min on `/api`), CORS (localhost:5173 + Vercel domain), Socket.io via `app.set('io', io)`. Three background crons start here: `reminderCron` (24-hr event reminders), `idPurgeCron` (deletes collected IDs `ID_RETENTION_DAYS` after the event, default 7), `rsvpNudgeCron` (auto-nudges non-responders `RSVP_NUDGE_AFTER_DAYS` after invite, default 3).
+- Route mounts: `/api/users`, `/api/invitations`, `/api/groups`, `/api/upload`, `/api/payments`, `/api/guest-lists`. Paywall kill switch: `GET /api/config/paywall` (`PAYWALL_ACTIVE` env, free guest limit 50).
+- Auth: JWT Bearer (`generateToken`, 30d expiry), `protect` middleware (`middleware/authMiddleware.js`). Auth/OTP routes have a strict 15/15-min `authLimiter`. Google sign-in via google-auth-library.
+
+### Models (`backend/models/`)
+- `User` — email+password (bcrypt) with OTP verification, Google login, primary/secondary phone with OTP sync, `expoPushToken`, reset-password OTP.
+- `Invitation` — host, delegates/co-hosts, attendees, `isPremium` + Razorpay ids, `reminderSent`. Indexed on user/host/sharedGroups/attendees.user/(eventDate,reminderSent).
+- `Group` — members, admins, join requests/links, permissions. Indexed on members/admins/owner/inviteCode.
+- `ReceivedInvitation` — per-recipient record. Fields: rsvpStatus, isRead, isSaved, `salutation`/`suffix`, `expectedCount` (host-only headcount), `tags[]`, `idRequest{requested,requestedAt,note}`, `idConsent`, `idDocuments[{publicId,format,label}]` (Cloudinary authenticated), `checkedIn`/`checkedInAt`, `ticketId` (QR), `lastNudgeAt`/`nudgeCount`. Indexed for inbox, guest lists, and (invitation,ticketId) check-in lookup.
+- `GuestList` — reusable, host-owned, event-independent. `guests[]` entries hold name, salutation, suffix, email, phone, linked `user`, `expectedCount`, notes. Auto-links entries to registered users by email/phone (last-10-digit match) and de-dupes.
+
+### Controllers (`backend/controllers/`)
+- `invitationController` — create/share/update/delete invites, RSVP, guest list read (`getEventGuestList` returns `stats` {invited/accepted/declined/pending/expectedTotal/expectedAttending/arrived}, `isPremium`, `idCollectionEnabled`), expected-count edit. `shareInvitationLater` expands `guestListIds` into recipients (carrying salutation/suffix/expected), skips already-invited guests (no duplicate email/push).
+- `guestListController` — CRUD, add/edit/remove guests (dedupe by user/email/phone, name fallback), duplicate, CSV export.
+- `guestManagementController` — per-guest tags, ID request/cancel/request-by-tag, guest ID consent+upload (`uploadPrivateDocument`), signed view (`getSignedDocumentUrl`, 5-min), delete. Premium-gated via `idCollectionEnabled` (respects `PAYWALL_ACTIVE`).
+- `checkinController` — `my-ticket` (generates ticketId + QR data-URL), `checkin` (by ticketId or guestId, dedupes), `checkin/undo`.
+- `rsvpReminderController` — `remind-pending` (manual nudge to non-responders) + shared `nudgeGuests` used by the cron.
+- `broadcastController` — `broadcast` a host message (push+email) to an audience (all / going / pending / `tag:X`).
+- `paymentController` — Razorpay ₹419 premium upgrade per event, HMAC signature verification.
+- `userController` — auth, OTP, Google login, profile, phone sync, `searchUsers` (whitelisted fields only), notification counts.
+
+### Services / utils
+- Cloudinary: public uploads (`uploadOnCloudinary`) for media; **authenticated** uploads (`uploadPrivateDocument`) + signed URLs (`getSignedDocumentUrl`) for guest IDs — never public.
+- Brevo API (email/OTPs), Expo push (`utils/pushNotification.js`), `qrcode` (server-side QR image generation).
 
 ## Frontend (web)
 
-- SPA in `frontend/src/App.jsx`; state via `context/AuthContext.jsx`; API client `utils/api.js` (axios, `VITE_API_URL`, Bearer token from localStorage).
-- Key routes: `/` dashboard, `/create-event`, `/inbox`, `/saved`, `/invitation/:id` (+`/guests`), `/groups`, `/group/:id`, `/share/:id` (public invite), `/group/join/:id`, `/profile`.
-- Public/teaser invite pages work without login; `InviteBridge`/`SmartAppBanner` deep-link into the mobile app.
+- SPA in `frontend/src/App.jsx`; auth in `context/AuthContext.jsx`; API client `utils/api.js`. Caching hook: `utils/useCachedGet.js` (stale-while-revalidate).
+- Routes: `/` dashboard, `/create-event`, `/inbox`, `/saved`, `/invitation/:id` (+`/guests` = host roster), `/groups`, `/group/:id`, `/guest-lists` (+`/:id`), `/share/:id` (public), `/profile`.
+- Key components: `GuestLists`/`GuestListDetail` (manage lists), `HostGuestList` (roster: headcount dashboard, tap-to-manage rows, check-in + webcam scan via `CheckinScanner`, remind, broadcast), `GuestIdUpload` + `GuestTicket` (guest-side ID upload + QR pass, rendered in `InvitationDetail`).
 
-## Mobile app (hosts)
+## Mobile app (hosts + guests)
 
-- expo-router screens in `host-mobile-app/app/` mirroring web features; Razorpay via react-native-razorpay; push notifications via expo-notifications; contact sync via expo-contacts; Google sign-in native.
-- `EXPO_PUBLIC_API_URL` points at the production backend by default.
+- expo-router screens in `host-mobile-app/app/`: `dashboard`, `event/[id]` (decluttered host view: stats, Manage-guests button, combined Invite/Share menus), `roster/[id]` (separate attendee roster: search/filter, tap-a-guest sheet, scan/remind/broadcast), `scan/[id]` (expo-camera QR scanner, guarded require), `guest-lists` (+`/[id]`), `invite/[id]`, `groups`, `profile`, `edit/[id]`.
+- Components: `GuestIdUpload`, `GuestTicket` (guest ID upload + QR pass, shown on their event view).
+- Images use `expo-image` (disk cache). `EXPO_PUBLIC_API_URL` points at the production backend by default.
+- **Native modules requiring an EAS rebuild:** `expo-camera` (QR scanner). The scan screen guards the require so older builds degrade gracefully instead of crashing.
 
 ## Run locally
 
 ```bash
-# Backend (port 5000) — needs backend/.env (already present)
+# Backend (port 5000) — needs backend/.env; run `npm install` (adds qrcode)
 cd backend && npm install && npm run dev
 
-# Frontend (port 5173) — for local dev, point VITE_API_URL at http://localhost:5000
+# Frontend (port 5173) — set VITE_API_URL=http://localhost:5000/api for local backend
 cd frontend && npm install && npm run dev
 
-# Mobile
+# Mobile — run `npx expo install expo-camera` then eas build for the scanner
 cd host-mobile-app && npm install && npx expo start
 ```
 
-- `frontend/.env` currently targets the production Render backend. To develop against local backend, set `VITE_API_URL=http://localhost:5000` (api.js appends nothing; backend routes live under `/api` — note web api.js default is `http://localhost:5000/api`, so match that shape).
-- Backend CORS only allows `localhost:5173` and the Vercel domain — add origins in `server.js` if the dev host/port differs.
-- MongoDB is Atlas (cloud) — internet required; no local DB setup needed.
+- MongoDB is Atlas (cloud) — internet required. The `.env` MONGO_URI uses the direct (non-SRV) shard connection to avoid DNS-SRV issues on some networks.
+
+## Security
+
+See `SECURITY_CHECKLIST.md`. Code fixes done: user-search field leak, auth rate limiting, NoSQL-injection coercion on login/reset. **Outstanding (owner action):** rotate the exposed secrets in `SECRETS_ROTATION.md` (Mongo pw, JWT secret, Cloudinary, Gmail) and purge them from git history.
 
 ## Known issues / TODO
 
-- **SECURITY: `backend/.env.example` is committed to git with REAL credentials** (Mongo password, JWT secret, Cloudinary secret, Gmail app password). Rotate all of these and replace the file with placeholders. `invitoinbox-71aa6-firebase-adminsdk-fbsvc-*.json` (Firebase service account) sits untracked in repo root — keep it out of git.
-- Two ~100 MB `application-*.tar.gz` build archives are committed to git — should be removed (git history rewrite / git-lfs) to slim the repo.
-- Branch `main` is 1 commit ahead of `origin/main`; uncommitted changes in package-locks and `PremiumUpgradeModal.tsx`.
-- `backend/utils/cache.ts` is a stray TS file in a JS codebase.
-- Duplicate middleware: `auth.middleware.js` vs `authMiddleware.js` — consolidate.
-- Razorpay is in TEST mode (`rzp_test_...`) across web and mobile.
-- `Invitation` schema lacks the `reminderSent` field that `reminderCron.js` reads/writes (works via Mongoose strict-mode pass-through? verify persistence — likely silently dropped; add to schema).
+- Rotate + purge the committed secrets (see above) — highest priority.
+- Two ~100 MB `application-*.tar.gz` archives are committed — remove from history / git-lfs.
+- `backend/utils/cache.ts` is a stray TS file; duplicate `auth.middleware.js` vs `authMiddleware.js`.
+- Razorpay is in TEST mode (`rzp_test_...`).
+- Web host event page (`InvitationDetail`) invite/share not consolidated like mobile (mobile-only cleanup so far).
 
-## Recent work (git log)
+## Recent work
 
-Razorpay premium/paywall integration (web + mobile), image optimization, 24-hr reminder cron, calendar integration, dual phone numbers, simultaneous web+mobile login.
+Guest lists per function (reusable, salutations/suffixes, dedupe, contact sync/picker, CSV export, select-to-invite), expected headcount + dashboard, guest tags, premium ID collection (private storage, consent, signed links, auto-purge), QR check-in (guest ticket + host camera/webcam scanner + live arrived count), RSVP follow-up (manual + auto cron), broadcast to guests, host-UI declutter (separate roster, tap-to-manage), mobile perf, security hardening pass.
